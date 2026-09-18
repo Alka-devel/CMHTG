@@ -1,0 +1,15 @@
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.code-workspace
+*.out
+*.ps?
+schedule.json
+vendor/
+
+.idea/
+.vscode/
+
+.DS_Store
