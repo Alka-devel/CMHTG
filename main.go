@@ -15,16 +15,20 @@ import (
 )
 
 var (
-	path          = "schedule.json"
-	week, weekErr = LoadWeekSchedule(path)
-	emojiEnabled  = flag.Bool("emojiEnabled", false, "Enable emoji handler")
-	botToken      = ""
+	path         = "schedule.json"
+	week         *WeekSchedule
+	weekErr      error
+	emojiEnabled = flag.Bool("emojiEnabled", false, "Enable emoji handler")
+	botToken     = ""
 )
 
 func main() {
 	fmt.Println("Start")
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
+	flag.StringVar(&path, "table-path", path, "path to table with data")
 	flag.Parse()
+
+	week, weekErr = LoadWeekSchedule(path)
 
 	if weekErr != nil {
 		fmt.Println(weekErr)
@@ -302,7 +306,7 @@ func scheduleCom(bh *th.BotHandler) {
 		}
 
 		if strings.Contains(update.Message.Text, "да") {
-			return forceSch() 
+			return forceSch()
 		}
 		sp := strings.TrimPrefix(update.Message.Text, "/schedule")
 		sp = strings.TrimPrefix(sp, "расписание")
