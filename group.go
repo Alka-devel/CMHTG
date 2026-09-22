@@ -57,8 +57,6 @@ func LoadClassRegistry(path string) (*ClassRegistry, error) {
 }
 
 func Check(chatid int64) bool {
-	Groups.mu.Lock()
-	defer Groups.mu.Unlock()
 	_, nah := Groups.GetGroup(chatid)
-	return nah
+	return !nah
 }

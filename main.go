@@ -31,9 +31,8 @@ func main() {
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
 	flag.StringVar(&path, "table-path", path, "path to table with data")
 	flag.Parse()
-	Groups, grErr := LoadClassRegistry(claPath)
+	Groups, grErr = LoadClassRegistry(claPath)
 	week, weekErr = LoadWeekSchedule(path)
-	_ = Groups
 	if grErr != nil {
 		fmt.Println(grErr)
 	}
@@ -391,7 +390,12 @@ func startCom(bh *th.BotHandler) {
 }
 func waiterCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		waiter.Dispatch(update.Message.Chat.ChatID(), update)
+		if update.Message != nil {
+			waiter.Dispatch(update.Message.Chat.ChatID(), update)
+		}
+		if update.CallbackQuery != nil {
+			waiter.Dispatch(update.CallbackQuery.Message.GetChat().ChatID(), update)
+		}
 		ctx.Next(update)
 		return nil
 	}, th.Any())

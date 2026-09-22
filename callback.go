@@ -55,8 +55,10 @@ func callbackHan(bh *th.BotHandler) {
 			deleteQueryMessage(ctx, query)
 		case "it":
 			Groups.SetGroup(chID.ID, InfTec)
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chID, query.Message.GetMessageID(), "Успешно установлена группа ИТ"))
 		case "se":
 			Groups.SetGroup(chID.ID, SocEco)
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chID, query.Message.GetMessageID(), "Успешно установлена группа СЭ"))
 		}
 		return nil
 	}, th.AnyCallbackQueryWithMessage())
