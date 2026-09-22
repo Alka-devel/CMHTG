@@ -19,10 +19,11 @@ var (
 	claPath      = "classmates.json"
 	week         *WeekSchedule
 	weekErr      error
-	Groups      *ClassRegistry
+	Groups       *ClassRegistry
 	grErr        error
 	emojiEnabled = flag.Bool("emojiEnabled", false, "Enable emoji handler")
 	botToken     = ""
+	waiter       = NewWaiter()
 )
 
 func main() {
@@ -60,6 +61,7 @@ func load() (*telego.Bot, context.Context) {
 }
 func initComs(bh *th.BotHandler) {
 	//============
+	waiterCom(bh)
 	startCom(bh)
 	anonmsgCom(bh, 138)
 	scheduleCom(bh)
@@ -371,8 +373,26 @@ func startCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
 			tu.ID(update.Message.Chat.ID),
-			fmt.Sprintf("Привет %s! Если вдруг у тебя появились идеи или хочешь сообщить об ошибке, пиши @ThisNameReallyExists ☺️", update.Message.From.FirstName),
+			fmt.Sprintf("Привет, %s! Если вдруг у тебя появились идеи или хочешь сообщить об ошибке, пиши @ThisNameReallyExists ☺️", update.Message.From.FirstName),
 		))
+		if Check(update.Message.Chat.ID) {
+			ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
+				update.Message.Chat.ChatID(),
+				tu.Entity("Также тебе надо сделать выбор в какой ты группе!"),
+			).WithReplyMarkup(tu.InlineKeyboard(
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
+					tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
+				),
+			)))
+		}
 		return nil
 	}, th.CommandEqual("start"))
+}
+func waiterCom(bh *th.BotHandler) {
+	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		waiter.Dispatch(update.Message.Chat.ChatID(), update)
+		ctx.Next(update)
+		return nil
+	}, th.Any())
 }

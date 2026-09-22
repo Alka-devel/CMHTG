@@ -53,6 +53,10 @@ func callbackHan(bh *th.BotHandler) {
 			schImg(ctx, chID, day, false)
 		case "nothing":
 			deleteQueryMessage(ctx, query)
+		case "it":
+			Groups.SetGroup(chID.ID, InfTec)
+		case "se":
+			Groups.SetGroup(chID.ID, SocEco)
 		}
 		return nil
 	}, th.AnyCallbackQueryWithMessage())

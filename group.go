@@ -56,8 +56,9 @@ func LoadClassRegistry(path string) (*ClassRegistry, error) {
 	return c, nil
 }
 
-func Check(chatid int64) {
-	if _, nah := Groups.GetGroup(chatid); nah == false {
-		Groups.SetGroup(chatid, InfTec)
-	}
+func Check(chatid int64) bool {
+	Groups.mu.Lock()
+	defer Groups.mu.Unlock()
+	_, nah := Groups.GetGroup(chatid)
+	return nah
 }
