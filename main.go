@@ -16,8 +16,11 @@ import (
 
 var (
 	path         = "schedule.json"
+	claPath      = "classmates.json"
 	week         *WeekSchedule
 	weekErr      error
+	Groups      *ClassRegistry
+	grErr        error
 	emojiEnabled = flag.Bool("emojiEnabled", false, "Enable emoji handler")
 	botToken     = ""
 )
@@ -27,9 +30,12 @@ func main() {
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
 	flag.StringVar(&path, "table-path", path, "path to table with data")
 	flag.Parse()
-
+	Groups, grErr := LoadClassRegistry(claPath)
 	week, weekErr = LoadWeekSchedule(path)
-
+	_ = Groups
+	if grErr != nil {
+		fmt.Println(grErr)
+	}
 	if weekErr != nil {
 		fmt.Println(weekErr)
 	}
@@ -308,9 +314,8 @@ func scheduleCom(bh *th.BotHandler) {
 		if strings.Contains(update.Message.Text, "да") {
 			return forceSch()
 		}
-		sp := strings.TrimPrefix(update.Message.Text, "/schedule")
+		sp := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/schedule")
 		sp = strings.TrimPrefix(sp, "расписание")
-		sp = strings.TrimPrefix(sp, "Расписание")
 
 		btn1 := tu.InlineKeyboardButton("Да").WithCallbackData("showSchedule")
 		btn2 := tu.InlineKeyboardButton("Нет").WithCallbackData("nothing")
@@ -320,8 +325,8 @@ func scheduleCom(bh *th.BotHandler) {
 		btn2.Style = telego.ButtonStyleDanger
 
 		if sp != "" {
-			switch sp {
-			case " ближайшее":
+			switch {
+			case strings.Contains(sp, " ближайшее"):
 				return forceSch()
 			default:
 				_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
