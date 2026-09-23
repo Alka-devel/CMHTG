@@ -18,7 +18,7 @@ func TestRenderSchedulePreview(t *testing.T) {
 
 	// currentIndex = 2 → подсвечивается 3-й урок (индексация с нуля), как в макете
 	// scale = DefaultScale (3x) — рендерим в повышенном разрешении, чтобы текст не был мыльным
-	img, err := RenderScheduleImage(day, 2, "18 мин", DefaultScale)
+	img, err := RenderScheduleImage(day, 2, "18 мин", DefaultScale, Empty)
 	if err != nil {
 		t.Fatalf("рендер не удался: %v", err)
 	}
