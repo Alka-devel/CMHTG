@@ -114,16 +114,16 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		scale = DefaultScale
 	}
 	isLesNeed := true
-	grrNam := ""
+	grrNam := 0
 	s := func(v float64) float64 { return v * scale }
 	var rowsCount int
 	if group != Empty {
 		isLesNeed = false
 		switch group {
 		case InfTec:
-			grrNam = "(и.т.)"
+			grrNam = 1
 		case SocEco:
-			grrNam = "(с.э.)"
+			grrNam = 2
 		}
 	}
 	_ = grrNam
@@ -141,7 +141,10 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		if isLesNeed {
 			rowsCount++
 		}
-		if !isLesNeed && (entry.IsIT || entry.IsSE) {
+		if !isLesNeed && !entry.IsSE && grrNam == 1 {
+			rowsCount++
+		}
+		if !isLesNeed && !entry.IsIT && grrNam == 2 {
 			rowsCount++
 		}
 	}
@@ -178,13 +181,24 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 
 	y := s(baseHeaderTop)
 	for _, entry := range day.Entries {
+		if group != Empty {
+			entry.Addi = false
+		}
+		if group == InfTec && entry.IsSE {
+			fmt.Println("Propusk IT")
+			continue
+		}
+		if group == SocEco && entry.IsIT {
+			fmt.Println("Propusk SE")
+			continue
+		}
 		isCurrent := entry.Number == currentIndex
 		var groupPad float64 = pad
 		if err := setFont(dc, mediumFont, s(baseFontNum)); err != nil {
 			return nil, err
 		}
 		rd, _ := dc.MeasureString(fmt.Sprintf("%d", entry.Number))
-		if entry.Addi == true && !isLesNeed {
+		if entry.Addi == true {
 			groupPad = pad + s(baseRowPadX)*2 + rd
 		}
 		bg := colRowBg
@@ -232,7 +246,7 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		rightX := imgW - pad - s(baseRowPadX) - rw
 		rightTeX := imgW - pad - s(baseRowPadX) - rw - groupTeW
 		subjectX := groupPad + s(baseSubjectX)
-		if entry.Addi == true && !isLesNeed {
+		if entry.Addi == true {
 			subjectX -= s(baseSubjectX)/2 + numW/2
 		}
 		maxSubjectWidth := rightX - s(baseMinTextGap) - subjectX - groupTeW
@@ -247,14 +261,14 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		}
 		dc.SetColor(textColor)
 		dc.DrawString(right, rightX, cy)
-		if entry.IsIT == true && !isLesNeed {
+		if entry.IsIT == true && (!isLesNeed || group == Empty) {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()
 			dc.SetColor(textColor)
 			dc.DrawString(groupT(), rightTeX+s(baseMiniPad), cy)
 		}
-		if entry.IsSE == true && !isLesNeed {
+		if entry.IsSE == true && (!isLesNeed || group == Empty) {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()

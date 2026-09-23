@@ -46,6 +46,7 @@ func callbackHan(bh *th.BotHandler) {
 					case 2:
 						grr = InfTec
 					}
+					fmt.Println("namnam", gr)
 				}
 				schImg(ctx, chID, day, force, grr)
 				return nil

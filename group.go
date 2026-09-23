@@ -59,5 +59,18 @@ func LoadClassRegistry(path string) (*ClassRegistry, error) {
 
 func Check(chatid int64) bool {
 	_, nah := Groups.GetGroup(chatid)
-	return !nah
+	return nah
+}
+
+func (g Group) String() string {
+	switch g {
+	case Empty:
+		return "Empty"
+	case SocEco:
+		return "SocEco"
+	case InfTec:
+		return "InfTec"
+	default:
+		return "Unknown"
+	}
 }

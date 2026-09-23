@@ -291,7 +291,7 @@ func anonmsgCom(bh *th.BotHandler, threadId int) {
 func scheduleCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		args := ":empty"
-		if update.Message.Chat.IsDirectMessages {
+		if update.Message.Chat.Type == "private" {
 			if !Check(update.Message.Chat.ID) {
 				_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 					update.Message.Chat.ChatID(),
@@ -308,8 +308,9 @@ func scheduleCom(bh *th.BotHandler) {
 				}
 				return nil
 			}
-			g, _ := Groups.GetGroup(update.Message.From.ID)
-			args = fmt.Sprintf(":%s", g)
+			g, oki := Groups.GetGroup(update.Message.From.ID)
+			args = fmt.Sprintf(":%d", g)
+			fmt.Println("аргу",args,"окии",oki)
 		}
 		forceSch := func() error {
 			f := false
