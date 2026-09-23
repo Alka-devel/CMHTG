@@ -70,6 +70,7 @@ func initComs(bh *th.BotHandler) {
 	irisComs(bh)
 	callbackHan(bh)
 	fioCom(bh)
+	VACUUUUMCLEANEER(bh)
 	interCom(bh)
 	setCom(bh)
 	delDayCom(bh)
@@ -310,7 +311,7 @@ func scheduleCom(bh *th.BotHandler) {
 			}
 			g, oki := Groups.GetGroup(update.Message.From.ID)
 			args = fmt.Sprintf(":%d", g)
-			fmt.Println("аргу",args,"окии",oki)
+			fmt.Println("аргу", args, "окии", oki)
 		}
 		forceSch := func() error {
 			f := false
@@ -448,4 +449,59 @@ func waiterCom(bh *th.BotHandler) {
 		ctx.Next(update)
 		return nil
 	}, th.Any())
+}
+func VACUUUUMCLEANEER(bh *th.BotHandler) {
+	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		if update.Message.From.ID != 5613804018 {
+			return fmt.Errorf("SUKI")
+		}
+		chid := update.Message.GetChat().ChatID()
+		threadID := update.Message.MessageThreadID
+		highest := update.Message.MessageID
+		botID := ctx.Bot().ID()
+		logChat := tu.ID(5613804018)
+
+		fmt.Println("botID =", botID) // сверим на всякий случай
+
+		ctx.Bot().DeleteMessage(ctx, tu.Delete(chid, update.Message.MessageID))
+
+		var deleted int
+		for id := 1; id < highest; id++ {
+			fwd, err := ctx.Bot().ForwardMessage(ctx, &telego.ForwardMessageParams{
+				ChatID:          logChat,
+				MessageThreadID: threadID,
+				FromChatID:      chid,
+				MessageID:       id,
+			})
+			if err != nil {
+				continue
+			}
+
+			// ВРЕМЕННЫЙ ДЕБАГ
+			fmt.Printf("id=%d from.ID=%d from.IsBot=%v forwardOrigin=%#v\n",
+				id, fwd.From.ID, fwd.From.IsBot, fwd.ForwardOrigin)
+
+			isFromBot := false
+			if origin, ok := fwd.ForwardOrigin.(*telego.MessageOriginUser); ok {
+				isFromBot = origin.SenderUser.ID == botID
+				fmt.Println("  -> MessageOriginUser, sender.ID =", origin.SenderUser.ID, "match:", isFromBot)
+			} else {
+				fmt.Printf("  -> НЕ MessageOriginUser, конкретный тип: %T\n", fwd.ForwardOrigin)
+			}
+
+			_ = ctx.Bot().DeleteMessage(ctx, tu.Delete(logChat, fwd.MessageID))
+
+			if isFromBot {
+				if err := ctx.Bot().DeleteMessage(ctx, tu.Delete(chid, id)); err == nil {
+					deleted++
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		fmt.Println("удалено сообщений бота:", deleted)
+		return nil
+	}, th.Or(
+		th.CommandEqual("clean"),
+		th.TextEqualFold("очистка"),
+	))
 }
