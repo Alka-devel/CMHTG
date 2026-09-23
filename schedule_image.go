@@ -119,13 +119,14 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 	var rowsCount int
 	if group != Empty {
 		isLesNeed = false
-		switch group{
+		switch group {
 		case InfTec:
 			grrNam = "(и.т.)"
 		case SocEco:
 			grrNam = "(с.э.)"
 		}
 	}
+	_ = grrNam
 	for _, entry := range day.Entries {
 		l := strings.Split(entry.Subject, "/")
 		if len(l) > 1 {
@@ -140,7 +141,7 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		if isLesNeed {
 			rowsCount++
 		}
-		if !isLesNeed && strings.Contains(entry.Subject, grrNam){
+		if !isLesNeed && (entry.IsIT || entry.IsSE) {
 			rowsCount++
 		}
 	}
@@ -183,7 +184,7 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 			return nil, err
 		}
 		rd, _ := dc.MeasureString(fmt.Sprintf("%d", entry.Number))
-		if entry.Addi == true {
+		if entry.Addi == true && !isLesNeed {
 			groupPad = pad + s(baseRowPadX)*2 + rd
 		}
 		bg := colRowBg
@@ -231,7 +232,7 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		rightX := imgW - pad - s(baseRowPadX) - rw
 		rightTeX := imgW - pad - s(baseRowPadX) - rw - groupTeW
 		subjectX := groupPad + s(baseSubjectX)
-		if entry.Addi == true {
+		if entry.Addi == true && !isLesNeed {
 			subjectX -= s(baseSubjectX)/2 + numW/2
 		}
 		maxSubjectWidth := rightX - s(baseMinTextGap) - subjectX - groupTeW
@@ -246,14 +247,14 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		}
 		dc.SetColor(textColor)
 		dc.DrawString(right, rightX, cy)
-		if entry.IsIT == true {
+		if entry.IsIT == true && !isLesNeed {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()
 			dc.SetColor(textColor)
 			dc.DrawString(groupT(), rightTeX+s(baseMiniPad), cy)
 		}
-		if entry.IsSE == true {
+		if entry.IsSE == true && !isLesNeed {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()
