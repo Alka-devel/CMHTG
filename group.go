@@ -10,7 +10,8 @@ import (
 type Group int8
 
 const (
-	SocEco Group = iota
+	Empty Group = iota
+	SocEco
 	InfTec
 )
 

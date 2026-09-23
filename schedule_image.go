@@ -109,22 +109,40 @@ func fitText(dc *gg.Context, text string, maxWidth float64) string {
 	return "…"
 }
 
-func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, scale float64) (image.Image, error) {
+func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, scale float64, group Group) (image.Image, error) {
 	if scale <= 0 {
 		scale = DefaultScale
 	}
+	isLesNeed := true
+	grrNam := ""
 	s := func(v float64) float64 { return v * scale }
 	var rowsCount int
+	if group != Empty {
+		isLesNeed = false
+		switch group{
+		case InfTec:
+			grrNam = "(и.т.)"
+		case SocEco:
+			grrNam = "(с.э.)"
+		}
+	}
 	for _, entry := range day.Entries {
 		l := strings.Split(entry.Subject, "/")
 		if len(l) > 1 {
 			for i, str := range l {
 				l[i] = strings.TrimSpace(str)
-				rowsCount++
+				if isLesNeed {
+					rowsCount++
+				}
 			}
 			continue
 		}
-		rowsCount++
+		if isLesNeed {
+			rowsCount++
+		}
+		if !isLesNeed && strings.Contains(entry.Subject, grrNam){
+			rowsCount++
+		}
 	}
 
 	imgW := s(baseImgW)     // ширина холста в реальных px
@@ -159,9 +177,6 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 
 	y := s(baseHeaderTop)
 	for _, entry := range day.Entries {
-		if entry.IsSE == true {
-			fmt.Printf("\n\n\nSE\n\n\n")
-		}
 		isCurrent := entry.Number == currentIndex
 		var groupPad float64 = pad
 		if err := setFont(dc, mediumFont, s(baseFontNum)); err != nil {

@@ -6,7 +6,7 @@
 *.code-workspace
 *.out
 *.ps?
-schedule.json
+*.json
 vendor/
 
 .idea/

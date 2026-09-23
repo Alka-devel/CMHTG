@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ func callbackHan(bh *th.BotHandler) {
 			_ = ctx.Bot().AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{})
 			if dsa := strings.Split(strings.TrimPrefix(query.Data, "showScheduleImg:"), ":"); dsa[0] != "" {
 				force := false
+				grr := Empty
 				if dsa[1] == "t" {
 					force = true
 				}
@@ -37,7 +39,15 @@ func callbackHan(bh *th.BotHandler) {
 						fmt.Sprintf("Расписание на %s не найдено.", dsa[0])))
 					return nil
 				}
-				schImg(ctx, query.Message.GetChat().ChatID(), day, force)
+				if gr, e := strconv.Atoi(dsa[2]); e == nil && (gr == 1 || gr == 2) {
+					switch gr {
+					case 1:
+						grr = SocEco
+					case 2:
+						grr = InfTec
+					}
+				}
+				schImg(ctx, chID, day, force, grr)
 				return nil
 			}
 		}
@@ -50,21 +60,29 @@ func callbackHan(bh *th.BotHandler) {
 				_, err := ctx.Bot().SendMessage(ctx, tu.Message(chID, "Расписание на сегодня не найдено."))
 				return err
 			}
-			schImg(ctx, chID, day, false)
+			schImg(ctx, chID, day, false, Empty)
 		case "nothing":
 			deleteQueryMessage(ctx, query)
 		case "it":
 			Groups.SetGroup(chID.ID, InfTec)
+			if e := Groups.Save(claPath); e != nil {
+				fmt.Println(e)
+				break
+			}
 			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chID, query.Message.GetMessageID(), "Успешно установлена группа ИТ"))
 		case "se":
 			Groups.SetGroup(chID.ID, SocEco)
+			if e := Groups.Save(claPath); e != nil {
+				fmt.Println(e)
+				break
+			}
 			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chID, query.Message.GetMessageID(), "Успешно установлена группа СЭ"))
 		}
 		return nil
 	}, th.AnyCallbackQueryWithMessage())
 }
 
-func schImg(ctx *th.Context, chID telego.ChatID, d ScheduleDay, force bool) {
+func schImg(ctx *th.Context, chID telego.ChatID, d ScheduleDay, force bool, grr Group) {
 	st := Status(time.Now())
 	if len(d.Entries) == 0 {
 		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, d.String()))
@@ -78,7 +96,7 @@ func schImg(ctx *th.Context, chID telego.ChatID, d ScheduleDay, force bool) {
 	if st.IsLesson {
 		currentIndex = st.LessonIndex + 1
 	}
-	img, err := RenderScheduleImage(d, currentIndex, fmtDur(st.TimeLeft), DefaultScale)
+	img, err := RenderScheduleImage(d, currentIndex, fmtDur(st.TimeLeft), DefaultScale, grr)
 	if err != nil {
 		log.Println("рендер расписания:", err)
 		return
