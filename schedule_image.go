@@ -109,22 +109,44 @@ func fitText(dc *gg.Context, text string, maxWidth float64) string {
 	return "…"
 }
 
-func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, scale float64) (image.Image, error) {
+func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, scale float64, group Group) (image.Image, error) {
 	if scale <= 0 {
 		scale = DefaultScale
 	}
+	isLesNeed := true
+	grrNam := 0
 	s := func(v float64) float64 { return v * scale }
 	var rowsCount int
+	if group != Empty {
+		isLesNeed = false
+		switch group {
+		case InfTec:
+			grrNam = 1
+		case SocEco:
+			grrNam = 2
+		}
+	}
+	_ = grrNam
 	for _, entry := range day.Entries {
 		l := strings.Split(entry.Subject, "/")
 		if len(l) > 1 {
 			for i, str := range l {
 				l[i] = strings.TrimSpace(str)
-				rowsCount++
+				if isLesNeed {
+					rowsCount++
+				}
 			}
 			continue
 		}
-		rowsCount++
+		if isLesNeed {
+			rowsCount++
+		}
+		if !isLesNeed && !entry.IsSE && grrNam == 1 {
+			rowsCount++
+		}
+		if !isLesNeed && !entry.IsIT && grrNam == 2 {
+			rowsCount++
+		}
 	}
 
 	imgW := s(baseImgW)     // ширина холста в реальных px
@@ -159,8 +181,16 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 
 	y := s(baseHeaderTop)
 	for _, entry := range day.Entries {
-		if entry.IsSE == true {
-			fmt.Printf("\n\n\nSE\n\n\n")
+		if group != Empty {
+			entry.Addi = false
+		}
+		if group == InfTec && entry.IsSE {
+			fmt.Println("Propusk IT")
+			continue
+		}
+		if group == SocEco && entry.IsIT {
+			fmt.Println("Propusk SE")
+			continue
 		}
 		isCurrent := entry.Number == currentIndex
 		var groupPad float64 = pad
@@ -231,14 +261,14 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		}
 		dc.SetColor(textColor)
 		dc.DrawString(right, rightX, cy)
-		if entry.IsIT == true {
+		if entry.IsIT == true && (!isLesNeed || group == Empty) {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()
 			dc.SetColor(textColor)
 			dc.DrawString(groupT(), rightTeX+s(baseMiniPad), cy)
 		}
-		if entry.IsSE == true {
+		if entry.IsSE == true && (!isLesNeed || group == Empty) {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()

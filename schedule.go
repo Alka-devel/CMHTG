@@ -126,7 +126,7 @@ func (s LessonStatus) Params(t telego.ChatID, day ScheduleDay) *telego.SendMessa
 		if s.NextBreak == 0 {
 			return tu.MessageWithEntities(
 				t,
-				tu.Entity(fmt.Sprintf("Урок: %s, %d\n", subject, room)),
+				tu.Entity(fmt.Sprintf("Урок: %s, %d\n", strings.TrimSpace(subject), room)),
 				tu.Entity(fmt.Sprintf("До конца: %s\n", fmtDur(s.TimeLeft))),
 				tu.Entity("ЙОО ЭТО ПОСЛЕДНИЙ УРООК!!"),
 				tu.Entity("😘").CustomEmoji("5381841785666413682"),
@@ -137,7 +137,7 @@ func (s LessonStatus) Params(t telego.ChatID, day ScheduleDay) *telego.SendMessa
 		} else {
 			return tu.MessageWithEntities(
 				t,
-				tu.Entity(fmt.Sprintf("Урок: %s, %d\n", subject, room)),
+				tu.Entity(fmt.Sprintf("Урок: %s, %d\n", strings.TrimSpace(subject), room)),
 				tu.Entity(fmt.Sprintf("До конца: %s\n", fmtDur(s.TimeLeft))),
 				tu.Entity(fmt.Sprintf("После него перемена: %s", fmtDur(s.NextBreak))),
 			)
