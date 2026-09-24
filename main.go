@@ -344,7 +344,7 @@ func scheduleCom(bh *th.BotHandler) {
 		sp := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/schedule")
 		sp = strings.TrimPrefix(sp, "расписание")
 
-		btn1 := tu.InlineKeyboardButton("Да").WithCallbackData(fmt.Sprintf("showScheduleImg:%s:t%s", strings.TrimSpace(sp), args)).WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
+		btn1 := tu.InlineKeyboardButton("Да").WithCallbackData(fmt.Sprintf("showSchedule")).WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
 		btn2 := tu.InlineKeyboardButton("Нет").WithCallbackData("nothing").WithIconCustomEmojiID("5217944373362174845").WithStyle("Danger")
 
 		if sp != "" {
@@ -355,7 +355,7 @@ func scheduleCom(bh *th.BotHandler) {
 				_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
 					tu.ID(update.Message.Chat.ID),
 					fmt.Sprintf("%s, показать расписание?", update.Message.From.FirstName),
-				).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(btn1, btn2))))
+				).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(btn1.WithCallbackData(fmt.Sprintf("showScheduleImg:%s:t%s", strings.TrimSpace(sp), args)), btn2))))
 				return nil
 			}
 		}
