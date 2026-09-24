@@ -401,7 +401,7 @@ func startCom(bh *th.BotHandler) {
 				tu.KeyboardButton("Перемена"),
 			),
 			tu.KeyboardRow(tu.KeyboardButton("Поменять группу")),
-		).WithResizeKeyboard().WithOneTimeKeyboard()))
+		).WithResizeKeyboard()))
 		if Check(update.Message.Chat.ID) {
 			ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 				update.Message.Chat.ChatID(),
