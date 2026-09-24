@@ -402,7 +402,7 @@ func startCom(bh *th.BotHandler) {
 			),
 			tu.KeyboardRow(tu.KeyboardButton("Поменять группу")),
 		).WithResizeKeyboard()))
-		if Check(update.Message.Chat.ID) {
+		if !Check(update.Message.Chat.ID) {
 			ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 				update.Message.Chat.ChatID(),
 				tu.Entity("Также тебе надо сделать выбор в какой ты группе!"),
