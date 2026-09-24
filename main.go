@@ -344,7 +344,7 @@ func scheduleCom(bh *th.BotHandler) {
 		sp := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/schedule")
 		sp = strings.TrimPrefix(sp, "расписание")
 
-		btn1 := tu.InlineKeyboardButton("Да").WithCallbackData(fmt.Sprintf("showSchedule")).WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
+		btn1 := tu.InlineKeyboardButton("Да").WithCallbackData("showSchedule").WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
 		btn2 := tu.InlineKeyboardButton("Нет").WithCallbackData("nothing").WithIconCustomEmojiID("5217944373362174845").WithStyle("Danger")
 
 		if sp != "" {
