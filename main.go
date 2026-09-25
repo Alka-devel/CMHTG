@@ -453,7 +453,7 @@ func waiterCom(bh *th.BotHandler) {
 func VACUUUUMCLEANEER(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		if update.Message.From.ID != 5613804018 {
-			return fmt.Errorf("SUKI")
+			return nil
 		}
 		chid := update.Message.GetChat().ChatID()
 		threadID := update.Message.MessageThreadID
