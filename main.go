@@ -344,12 +344,12 @@ func scheduleCom(bh *th.BotHandler) {
 		sp := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/schedule")
 		sp = strings.TrimPrefix(sp, "расписание")
 
-		btn1 := tu.InlineKeyboardButton("Да").WithCallbackData("showSchedule").WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
-		btn2 := tu.InlineKeyboardButton("Нет").WithCallbackData("nothing").WithIconCustomEmojiID("5217944373362174845").WithStyle("Danger")
+		btn1 := tu.InlineKeyboardButton("Да").WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
+		btn2 := tu.InlineKeyboardButton("Нет").WithIconCustomEmojiID("5217944373362174845").WithStyle("Danger").WithCallbackData("nothing")
 
 		if sp != "" {
 			switch {
-			case strings.Contains(sp, " ближайшее"):
+			case strings.Contains(sp, "ближайшее"):
 				return forceSch()
 			default:
 				_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
@@ -362,7 +362,7 @@ func scheduleCom(bh *th.BotHandler) {
 		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
 			tu.ID(update.Message.Chat.ID),
 			fmt.Sprintf("%s, показать расписание?", update.Message.From.FirstName),
-		).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(btn1, btn2))))
+		).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(btn1.WithCallbackData("showSchedule"), btn2))))
 		return nil
 	}, th.Or(th.CommandEqual("schedule"), th.TextPrefix("Расписание"), th.TextPrefix("расписание")))
 }
@@ -418,6 +418,9 @@ func startCom(bh *th.BotHandler) {
 }
 func reGroupCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		if update.Message.Chat.Type != "private" {
+			return nil
+		}
 		_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 			update.Message.Chat.ChatID(),
 			tu.Entity("Выбирай группу!"),
