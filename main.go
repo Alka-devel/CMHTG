@@ -20,7 +20,7 @@ import (
 */
 type teacherEntry struct {
 	aliases []string
-	subject string // "" — для пасхалок, без " учителя ..."
+	subject string
 	fio     string
 }
 

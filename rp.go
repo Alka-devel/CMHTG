@@ -25,9 +25,24 @@ var irisReactions = map[string]string{
 	"погладить":     "погладил",
 	"могнуть":       "моггнул",
 	"моггнуть":      "моггнул",
+	"ударить":       "ударил",
+	"пнуть":         "пнул",
+	"укусить":       "укусил",
+	"толкнуть":      "толкнул",
+	"утешить":       "утешил",
+	"успокоить":     "успокоил",
+	"разбудить":     "разбудил",
+	"простить":      "простил",
+	"предать":       "предал",
+	"благословить":  "благословил",
+	"проклясть":     "проклял",
 }
 
 func irisComs(bh *th.BotHandler) {
+	rpComs(bh)
+	pinComs(bh)
+}
+func rpComs(bh *th.BotHandler) {
 	predicates := make([]th.Predicate, 0, len(irisReactions))
 	for phrase := range irisReactions {
 		predicates = append(predicates, th.TextEqualFold(phrase))
@@ -47,7 +62,7 @@ func irisComs(bh *th.BotHandler) {
 			}
 			name := update.Message.ReplyToMessage.From.FirstName
 			switch m := member.(type) {
-			case *telego.ChatMemberAdministrator :
+			case *telego.ChatMemberAdministrator:
 				if m.CustomTitle != "" {
 					name = m.CustomTitle
 				}
@@ -66,8 +81,17 @@ func irisComs(bh *th.BotHandler) {
 
 		text := strings.ToLower(update.Message.Text)
 		if action, ok := irisReactions[text]; ok {
-			sendMes(fmt.Sprintf(" %s ", action))
+			sendMes(fmt.Sprint(" ", action, " "))
 		}
 		return nil
 	}, th.Or(predicates...))
+}
+func pinComs(bh *th.BotHandler) {
+	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		ctx.Bot().SendMessage(ctx, tu.Message(
+			update.Message.Chat.ChatID(),
+			"ПОНГ",
+		))
+		return nil
+	}, th.TextEqualFold("пинг"))
 }
