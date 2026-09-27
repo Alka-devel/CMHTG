@@ -39,20 +39,25 @@ var teacherLookup = []teacherEntry{
 	{[]string{"говнюка", "пидора", "еблан"}, "", "голосуйте что сюда вставить"},
 }
 var (
-	path         = "schedule.json"
-	claPath      = "classmates.json"
-	week         *WeekSchedule
-	weekErr      error
-	Groups       *ClassRegistry
-	grErr        error
-	emojiEnabled = flag.Bool("emojiEnabled", false, "Enable emoji handler")
-	botToken     = ""
-	rp           = flag.Bool("rp", false, "Enable RP handler")
+	// ───────────── PATHS ─────────────
+	path    = "schedule.json"
+	claPath = "classmates.json"
+	// ───────────── REGISTER ─────────────
+	week    *WeekSchedule
+	weekErr error
+	Groups  *ClassRegistry
+	grErr   error
+	// ───────────── ARGUMENTS ─────────────
 	waiter       = NewWaiter()
+	rp           = false
+	emojiEnabled = false
+	botToken     string
 )
 
 func main() {
 	fmt.Println("Start")
+	flag.BoolVar(&emojiEnabled, "emojiEnabled", emojiEnabled, "Enable emoji handler")
+	flag.BoolVar(&rp, "rp-coms", rp, "Enable RP handler")
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
 	flag.StringVar(&path, "table-path", path, "path to table with data")
 	flag.Parse()
@@ -94,10 +99,10 @@ func initComs(bh *th.BotHandler) {
 	interCom(bh)
 	setCom(bh)
 	delDayCom(bh)
-	if *rp {
+	if rp {
 		irisComs(bh)
 	}
-	if *emojiEnabled {
+	if emojiEnabled {
 		getEmojiID(bh)
 	}
 	//==============
