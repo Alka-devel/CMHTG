@@ -16,7 +16,9 @@ import (
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 )
-
+//
+// FILE 2
+// 
 type Period struct {
 	Start time.Duration
 	End   time.Duration
@@ -41,24 +43,25 @@ func (s LessonStatus) String() string {
 	if s.Finished {
 		return "УРОКОВ НЕЕТ 😝😝🤟🤘"
 	}
+	fmtLeft := fmtDur(s.TimeLeft)
+	fmtBreak := fmtDur(s.NextBreak)
 	if s.IsLesson {
 		return fmt.Sprintf(
 			"идёт урок №%d, до конца %s, после него перемена %s",
-			s.LessonIndex+1, fmtDur(s.TimeLeft), fmtDur(s.NextBreak),
+			s.LessonIndex+1, fmtLeft, fmtBreak,
 		)
 	}
 	return fmt.Sprintf(
 		"идёт перемена, до урока №%d осталось %s (длительность перемены: %s)",
-		s.LessonIndex+1, fmtDur(s.TimeLeft), fmtDur(s.NextBreak),
+		s.LessonIndex+1, fmtLeft, fmtBreak,
 	)
 }
 
 func Status(now time.Time) LessonStatus {
 	lessons := scheduleFor(now)
-	n := timeOfDay(now)
+	n := now.Sub(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()))
 	u, ok := week.GetDay(now)
 	if !ok {
-		fmt.Println("ne ok")
 		return LessonStatus{}
 	}
 	maxNumber := 0
@@ -116,18 +119,21 @@ func (s LessonStatus) Params(t telego.ChatID, day ScheduleDay) *telego.SendMessa
 			tu.Entity("😝").CustomEmoji("5348397248994617112"),
 		)
 	}
-	entry, ok := day.FindEntry(s.LessonIndex + 1)
 	var subject string = "не у нас"
 	var room int
-	if ok {
-		subject, room = entry.Subject, entry.Room
+	for _, e := range day.Entries {
+		if e.Number == s.LessonIndex+1 {
+			subject, room = e.Subject, e.Room
+		}
 	}
+	fmtLeft := fmtDur(s.TimeLeft)
+	fmtBreak := fmtDur(s.NextBreak)
 	if s.IsLesson {
 		if s.NextBreak == 0 {
 			return tu.MessageWithEntities(
 				t,
 				tu.Entity(fmt.Sprintf("Урок: %s, %d\n", strings.TrimSpace(subject), room)),
-				tu.Entity(fmt.Sprintf("До конца: %s\n", fmtDur(s.TimeLeft))),
+				tu.Entity(fmt.Sprintf("До конца: %s\n", fmtLeft)),
 				tu.Entity("ЙОО ЭТО ПОСЛЕДНИЙ УРООК!!"),
 				tu.Entity("😘").CustomEmoji("5381841785666413682"),
 				tu.Entity("\nА ПОТОМ ДОМОООЙ"),
@@ -138,24 +144,23 @@ func (s LessonStatus) Params(t telego.ChatID, day ScheduleDay) *telego.SendMessa
 			return tu.MessageWithEntities(
 				t,
 				tu.Entity(fmt.Sprintf("Урок: %s, %d\n", strings.TrimSpace(subject), room)),
-				tu.Entity(fmt.Sprintf("До конца: %s\n", fmtDur(s.TimeLeft))),
-				tu.Entity(fmt.Sprintf("После него перемена: %s", fmtDur(s.NextBreak))),
+				tu.Entity(fmt.Sprintf("До конца: %s\n", fmtLeft)),
+				tu.Entity(fmt.Sprintf("После него перемена: %s", fmtBreak)),
 			)
 		}
 	}
 	if s.NextBreak == s.TimeLeft {
-		fmt.Println(s.NextBreak, s.TimeLeft)
 		return tu.MessageWithEntities(
 			t,
 			tu.Entity("Перемена\n"),
-			tu.Entity(fmt.Sprintf("До урока: %s\n", fmtDur(s.TimeLeft))),
+			tu.Entity(fmt.Sprintf("До урока: %s\n", fmtLeft)),
 		)
 	}
 	return tu.MessageWithEntities(
 		t,
 		tu.Entity("Перемена\n"),
-		tu.Entity(fmt.Sprintf("До урока: %s\n", fmtDur(s.TimeLeft))),
-		tu.Entity(fmt.Sprintf("После него перемена: %s", fmtDur(s.NextBreak))),
+		tu.Entity(fmt.Sprintf("До урока: %s\n", fmtLeft)),
+		tu.Entity(fmt.Sprintf("После него перемена: %s", fmtBreak)),
 		tu.Entity("😘").CustomEmoji("5381841785666413682"),
 	)
 }
@@ -294,9 +299,6 @@ type WeekSchedule struct {
 	mu   sync.Mutex
 }
 
-func NewWeekSchedule() *WeekSchedule {
-	return &WeekSchedule{Days: make(map[string]ScheduleDay)}
-}
 func (w *WeekSchedule) SetDay(day ScheduleDay) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -311,8 +313,6 @@ func (w *WeekSchedule) GetDay(date time.Time) (ScheduleDay, bool) {
 	return day, ok
 }
 
-const schedulePath = "week_schedule.json"
-
 func (w *WeekSchedule) Save(path string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -324,7 +324,7 @@ func (w *WeekSchedule) Save(path string) error {
 }
 
 func LoadWeekSchedule(path string) (*WeekSchedule, error) {
-	w := NewWeekSchedule()
+	w := &WeekSchedule{Days: make(map[string]ScheduleDay)}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return w, nil
