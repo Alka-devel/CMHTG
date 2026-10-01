@@ -185,11 +185,9 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 			entry.Addi = false
 		}
 		if group == InfTec && entry.IsSE {
-			fmt.Println("Propusk IT")
 			continue
 		}
 		if group == SocEco && entry.IsIT {
-			fmt.Println("Propusk SE")
 			continue
 		}
 		isCurrent := entry.Number == currentIndex

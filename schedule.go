@@ -16,9 +16,7 @@ import (
 	"github.com/mymmrac/telego"
 	tu "github.com/mymmrac/telego/telegoutil"
 )
-//
-// FILE 2
-// 
+
 type Period struct {
 	Start time.Duration
 	End   time.Duration

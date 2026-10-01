@@ -213,9 +213,8 @@ func scheduleCom(bh *th.BotHandler) {
 				}
 				return nil
 			}
-			g, oki := Groups.GetGroup(update.Message.From.ID)
+			g, _ := Groups.GetGroup(update.Message.From.ID)
 			args = fmt.Sprintf(":%d", g)
-			fmt.Println("аргу", args, "окии", oki)
 		}
 		forceSch := func() error {
 			f := false
@@ -232,7 +231,8 @@ func scheduleCom(bh *th.BotHandler) {
 					continue
 				}
 				f = true
-				schImg(ctx, update.Message.GetChat().ChatID(), day, f, Empty)
+				g, _ := Groups.GetGroup(update.Message.From.ID)
+				schImg(ctx, update.Message.GetChat().ChatID(), day, f, g)
 				return nil
 			}
 			if !f {
