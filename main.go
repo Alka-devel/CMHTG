@@ -4,11 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/Alka-devel/ruwiki-term"
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
 	tu "github.com/mymmrac/telego/telegoutil"
@@ -47,6 +49,8 @@ var (
 	weekErr error
 	Groups  *ClassRegistry
 	grErr   error
+	browser *ruwiki.Browser
+	brrErr  error
 	// ───────────── ARGUMENTS ─────────────
 	waiter       = NewWaiter()
 	rp           = false
@@ -61,13 +65,19 @@ func main() {
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
 	flag.StringVar(&path, "table-path", path, "path to table with data")
 	flag.Parse()
+	browser, brrErr = ruwiki.StartChrome()
+	if brrErr != nil {
+		log.Fatal(brrErr)
+	}
+	defer browser.Close()
+
 	Groups, grErr = LoadClassRegistry(claPath)
 	week, weekErr = LoadWeekSchedule(path)
 	if grErr != nil {
-		fmt.Println(grErr)
+		log.Fatal(grErr)
 	}
 	if weekErr != nil {
-		fmt.Println(weekErr)
+		log.Fatal(weekErr)
 	}
 
 	bot, ctx := load()
@@ -99,6 +109,7 @@ func initComs(bh *th.BotHandler) {
 	interCom(bh)
 	setCom(bh)
 	delDayCom(bh)
+	termCom(bh)
 	if rp {
 		irisComs(bh)
 	}
@@ -399,5 +410,31 @@ func VACUUUUMCLEANEER(bh *th.BotHandler) {
 	}, th.Or(
 		th.CommandEqual("clean"),
 		th.TextEqualFold("очистка"),
+	))
+}
+func termCom(bh *th.BotHandler) {
+	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		if update.Message.Chat.Type != "private" {
+			ctx.Bot().DeleteMessage(ctx, tu.Delete(
+				update.Message.Chat.ChatID(),
+				update.Message.MessageID))
+			return nil
+		}
+		ctx.Bot().SendMessage(ctx, tu.Message(update.Message.Chat.ChatID(), "Ищу значение."))
+		word := strings.TrimSpace(strings.ToLower(update.Message.Text))
+		word = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(word,
+			"значение"),
+			"термин"),
+			"/term")
+		_, te, e := ruwiki.SearchTerm(word)
+		if e != nil {
+			log.Fatal(e)
+		}
+		ctx.Bot().SendMessage(ctx, tu.Message(tu.ID(update.Message.From.ID), te))
+		return e
+	}, th.Or(
+		th.CommandEqual("term"),
+		th.TextPrefix("значение"), th.TextPrefix("Значение"),
+		th.TextPrefix("термин"), th.TextPrefix("Термин"),
 	))
 }
