@@ -3,7 +3,7 @@ module tenmphelper
 go 1.27.0
 
 require (
-	github.com/Alka-devel/ruwiki-term v0.0.0-20261001104530-a009ddff8979
+	github.com/Alka-devel/ruwiki-term v0.0.0-20261001110935-3178093daae4
 	github.com/fogleman/gg v1.3.0
 	github.com/mymmrac/telego v1.12.1
 	golang.org/x/image v0.46.0
