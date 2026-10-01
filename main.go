@@ -67,7 +67,7 @@ func main() {
 	flag.Parse()
 	browser, brrErr = ruwiki.StartChrome()
 	if brrErr != nil {
-		log.Fatal(brrErr)
+		fmt.Println(brrErr)
 	}
 	defer browser.Close()
 
