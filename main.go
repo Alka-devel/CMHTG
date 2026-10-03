@@ -429,14 +429,13 @@ func termCom(bh *th.BotHandler) {
 		if er != nil {
 			return er
 		}
-		fields := strings.Fields(update.Message.Text)
-		if len(fields) > 1 {
-			fields = fields[1:]
-		} else {
-			fields = []string{""}
-		}
+		word := strings.TrimSpace(strings.ToLower(update.Message.Text))
+		word = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(word,
+			"значение"),
+			"термин"),
+			"/term")
 		txt := "Произошла непредвиденная ошибка"
-		_, te, e := ruwiki.SearchTerm(fields[0])
+		_, te, e := ruwiki.SearchTerm(word)
 		if e != nil {
 			log.Fatal(e)
 		} else {
