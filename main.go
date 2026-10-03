@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -44,7 +42,7 @@ var teacherLookup = []teacherEntry{
 }
 var (
 	// ───────────── PATHS ─────────────
-	path    = "schedule.json"
+	tabPath = "schedule.json"
 	claPath = "classmates.json"
 	// ───────────── REGISTER ─────────────
 	week    *WeekSchedule
@@ -65,7 +63,7 @@ func main() {
 	flag.BoolVar(&emojiEnabled, "emojiEnabled", emojiEnabled, "Enable emoji handler")
 	flag.BoolVar(&rp, "rp-coms", rp, "Enable RP handler")
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
-	flag.StringVar(&path, "table-path", path, "path to table with data")
+	flag.StringVar(&tabPath, "table-path", tabPath, "path to table with data")
 	flag.Parse()
 	browser, brrErr = ruwiki.StartChrome()
 	if brrErr != nil {
@@ -74,7 +72,7 @@ func main() {
 	defer browser.Close()
 
 	Groups, grErr = LoadClassRegistry(claPath)
-	week, weekErr = LoadWeekSchedule(path)
+	week, weekErr = LoadWeekSchedule(tabPath)
 	if grErr != nil {
 		log.Fatal(grErr)
 	}
@@ -108,7 +106,7 @@ func initComs(bh *th.BotHandler) {
 	callbackHan(bh)
 	fioCom(bh)
 	VACUUUUMCLEANEER(bh)
-	rhwCom(bh)
+	gdzCom(bh)
 	interCom(bh)
 	setCom(bh)
 	delDayCom(bh)
@@ -125,7 +123,7 @@ func initComs(bh *th.BotHandler) {
 func delDayCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		chID := tu.ID(update.Message.Chat.ID)
-		args := strings.TrimPrefix(update.Message.Text, "/delDay ")
+		args := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/delday ")
 		date, err := time.Parse(dateLayout, args)
 		if err != nil {
 			_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, fmt.Sprintf("Неверный формат: %s", err)))
@@ -137,7 +135,7 @@ func delDayCom(bh *th.BotHandler) {
 		}
 		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, "День удалён из расписания"))
 		return nil
-	}, th.CommandEqual("delDay"))
+	}, th.CommandEqual("delday"))
 }
 func setCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
@@ -150,7 +148,7 @@ func setCom(bh *th.BotHandler) {
 			return nil
 		}
 		week.SetDay(day)
-		if e := week.Save(path); e != nil {
+		if e := week.Save(tabPath); e != nil {
 			_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, fmt.Sprintln(e)))
 			return nil
 		}
@@ -440,47 +438,4 @@ func termCom(bh *th.BotHandler) {
 		th.TextPrefix("значение"), th.TextPrefix("Значение"),
 		th.TextPrefix("термин"), th.TextPrefix("Термин"),
 	))
-}
-func rhwCom(bh *th.BotHandler) {
-	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		num := strings.TrimSpace(strings.TrimPrefix(update.Message.Text, "/gdz"))
-		nam, e := strconv.Atoi(num)
-		if e == nil {
-			sendSolution(ctx, update.Message.SenderChat.ChatID(), nam)
-			return nil
-		}
-
-		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(update.Message.SenderChat.ChatID(), "Не получилось: "+e.Error()))
-		return nil
-	},
-		th.CommandEqual("gdz"),
-	)
-}
-func sendSolution(ctx *th.Context, chID telego.ChatID, exercise int) error {
-	imgs, _, err := FetchSolutionImages(ctx, exercise)
-	if err != nil {
-		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, "Не получилось: "+err.Error()))
-		return err
-	}
-	pageURL := fmt.Sprintf("%s/otvet/otvet15.php?otvet=%d", reshakBase, exercise)
-
-	var media []telego.InputMedia
-	for i, im := range imgs {
-		data, err := DownloadImage(ctx, im.URL, pageURL)
-		if err != nil {
-			log.Println("скачивание:", err)
-			continue
-		}
-		m := tu.MediaPhoto(tu.FileFromReader(bytes.NewReader(data), fmt.Sprintf("sol%d_%d.png", im.Solution, i)))
-		if len(media) == 0 {
-			m = m.WithCaption(fmt.Sprintf("Упр. %d", exercise))
-		}
-		media = append(media, m)
-		time.Sleep(300 * time.Millisecond)
-	}
-	if len(media) == 0 {
-		return fmt.Errorf("ни одна картинка не скачалась")
-	}
-	_, err = ctx.Bot().SendMediaGroup(ctx, tu.MediaGroup(chID, media...))
-	return err
 }

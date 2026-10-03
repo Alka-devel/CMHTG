@@ -365,7 +365,7 @@ func (w *WeekSchedule) DeleteDay(date time.Time) error {
 	}
 	delete(w.Days, key)
 	w.mu.Unlock()
-	return w.Save(path)
+	return w.Save(tabPath)
 }
 func dayFinished(day ScheduleDay, now time.Time) bool {
 	periods := scheduleFor(now)
