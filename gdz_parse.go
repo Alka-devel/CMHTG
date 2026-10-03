@@ -1,10 +1,11 @@
 package main
 
-// gdz_parse.go — парсеры страниц reshak.ru по предметам.
+// gdz_parse.go — разбор HTML-страниц решебника reshak.ru.
 //
-// Слой разбора не знает про Telegram: он превращает страницу в GDZResult —
-// упорядоченный список кусочков, каждый из которых либо текст (HTML для
-// parse_mode=HTML), либо URL картинки. Отправка — в gdz_send.go.
+// Файл ничего не знает про Telegram. На выходе — GDZResult: упорядоченный
+// список кусков, где каждый кусок — либо текст в разметке для parse_mode=HTML,
+// либо абсолютный URL картинки. Результат дальше уходит в sendGDZ (gdz_send.go),
+// а сами страницы скачиваются через reshakGet из reshak.go.
 
 import (
 	"context"
@@ -13,139 +14,133 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-// GDZPart — один кусочек ответа: либо Text, либо Image (абсолютный URL).
+// GDZPart — один кусок ответа. Заполнено ровно одно поле: Text или Image.
 type GDZPart struct {
-	Text  string
-	Image string
+	Text  string // HTML для parse_mode=HTML (только <b>, <i>, <a>)
+	Image string // абсолютный URL картинки
 }
 
-// GDZResult — разобранная страница решебника.
+// GDZResult — разобранная страница. Собирается в Parse-функциях предметов,
+// URL дописывает FetchGDZ, читает всё это sendGDZ.
 type GDZResult struct {
-	Title string // заголовок страницы (обычный текст, без HTML)
-	URL   string // откуда взято (нужен как Referer при скачивании картинок)
+	Title string // содержимое h1.titleh1, обычный текст без HTML
+	URL   string // адрес страницы; при скачивании картинок идёт в заголовок Referer
 	Parts []GDZPart
 }
 
+// Возвращается finish, когда парсер не нашёл на странице ни одного куска.
 var errGDZEmpty = errors.New("на странице нет ответа (возможно, такого номера нет в решебнике)")
 
 // ───────────────────────────── ПРЕДМЕТЫ ─────────────────────────────
 
+// Допустимые форматы аргумента команды. Аргумент подставляется прямо в URL,
+// поэтому каждый предмет проверяет его одним из этих выражений.
+var (
+	reNum      = regexp.MustCompile(`^\d{1,4}$`)             // 74
+	reNumDash  = regexp.MustCompile(`^\d{1,3}-\d{1,3}$`)     // 21-1
+	reNumRange = regexp.MustCompile(`^\d{1,3}(-\d{1,3})?$`)  // 12 или 8-9
+	rePartPage = regexp.MustCompile(`^([12])[/ ](\d{1,3})$`) // 1/134 или 1 134
+)
+
+// gdzSubject описывает один предмет: по каким словам его находят в команде,
+// как проверить аргумент, как собрать URL и каким парсером разбирать страницу.
 type gdzSubject struct {
 	Name    string
-	Aliases []string
-	Usage   string // пример аргументов для справки
-	URL     func(arg string) (string, error)
+	Aliases []string // слова, которые findGDZSubject принимает как название предмета
+	Usage   string   // пример аргументов; показывается в справке и в тексте ошибки
+	argRe   *regexp.Regexp
+	build   func(arg string) string
 	Parse   func(doc *goquery.Document, base *url.URL) (GDZResult, error)
 }
 
+// Таблица всех предметов; её читают findGDZSubject, gdzUsage и тесты.
 var gdzSubjects = []gdzSubject{
-	{"Алгебра (Алимов)", []string{"алг", "алгебра", "алимов"}, "алг 74", algebraURL, parseImages},
-	{"Геометрия (Атанасян)", []string{"геом", "геометрия", "атанасян"}, "геом 222", geometryURL, parseImages},
-	{"Русский язык (Рыбченкова)", []string{"рус", "русс", "русский"}, "рус 50", russianURL, parseImages},
-	{"Физика (Мякишев)", []string{"физ", "физика", "мякишев"}, "физ 21-1", physicsURL, parsePhysics},
-	{"Химия (Габриелян)", []string{"хим", "химия"}, "хим 4-1", chemistryURL, parseChemistry},
-	{"Литература (Лебедев)", []string{"лит", "литра", "литература", "лебедев"}, "лит 1/134", literatureURL, parseLiterature},
-	{"История (Мединский)", []string{"ист", "история"}, "ист 1", historyURL, parseHistory},
-	{"Английский (Forward)", []string{"англ", "английский", "forward"}, "англ 8-9", englishURL, parseEnglish},
+	{
+		Name: "Алгебра (Алимов)", Aliases: []string{"алг", "алгебра", "алимов"}, Usage: "алг 74",
+		argRe: reNum, Parse: parseImages,
+		build: func(a string) string { return fmt.Sprintf("%s/otvet/otvet15.php?otvet=%s", reshakBase, a) },
+	},
+	{
+		Name: "Геометрия (Атанасян)", Aliases: []string{"геом", "геометрия", "атанасян"}, Usage: "геом 222",
+		argRe: reNum, Parse: parseImages, build: book("atan10_11", "new/"),
+	},
+	{
+		Name: "Русский язык (Рыбченкова)", Aliases: []string{"рус", "русс", "русский"}, Usage: "рус 50",
+		argRe: reNum, Parse: parseImages, build: book("ribchenkova10-11", ""),
+	},
+	{
+		Name: "Физика (Мякишев)", Aliases: []string{"физ", "физика", "мякишев"}, Usage: "физ 21-1 (параграф-задание)",
+		argRe: reNumDash, Parse: parsePhysics, build: book("myakishev10", ""),
+	},
+	{
+		Name: "Химия (Габриелян)", Aliases: []string{"хим", "химия"}, Usage: "хим 4-1 (параграф-вопрос)",
+		argRe: reNumDash, Parse: parseChemistry, build: book("ostroumov10", ""),
+	},
+	{
+		Name: "Литература (Лебедев)", Aliases: []string{"лит", "литра", "литература", "лебедев"}, Usage: "лит 1/134 (часть/страница)",
+		argRe: rePartPage, Parse: parseLiterature,
+		build: func(a string) string {
+			m := rePartPage.FindStringSubmatch(a) // аргумент уже прошёл argRe, совпадение есть
+			return reshebnik("lebedev_baz10", "part"+m[1]+"/"+m[2])
+		},
+	},
+	{
+		Name: "История (Мединский)", Aliases: []string{"ист", "история"}, Usage: "ист 1 (номер параграфа)",
+		argRe: reNum, Parse: parseHistory, build: book("medinsky_vseobshaya10", ""),
+	},
+	{
+		Name: "Английский (Forward)", Aliases: []string{"англ", "английский", "forward"}, Usage: "англ 8-9 (страницы)",
+		argRe: reNumRange, Parse: parseEnglish,
+		build: func(a string) string {
+			return fmt.Sprintf("%s/otvet/otvet_txt.php?otvet1=/forward10/images/%s", reshakBase, a)
+		},
+	},
 }
 
+// Ищет предмет по первому слову команды (регистр и пробелы по краям не важны).
+// Вызывается из resolveGDZ в gdz_send.go и из тестов.
 func findGDZSubject(word string) (*gdzSubject, bool) {
 	word = strings.ToLower(strings.TrimSpace(word))
 	for i := range gdzSubjects {
-		for _, a := range gdzSubjects[i].Aliases {
-			if a == word {
-				return &gdzSubjects[i], true
-			}
+		if slices.Contains(gdzSubjects[i].Aliases, word) {
+			return &gdzSubjects[i], true
 		}
 	}
 	return nil, false
 }
 
-// ───────────────────────────── URL-БИЛДЕРЫ ─────────────────────────────
-// Аргументы пользователя подставляются в URL, поэтому каждый проверяется
-// регуляркой — никаких «&predmet=…» через чат.
+// Проверяет аргумент регуляркой предмета и собирает URL страницы.
+// Если аргумент не подходит — возвращает ошибку с примером из Usage.
+func (s *gdzSubject) URL(arg string) (string, error) {
+	if !s.argRe.MatchString(arg) {
+		return "", fmt.Errorf("неверный номер, пример: /gdz %s", s.Usage)
+	}
+	return s.build(arg), nil
+}
 
-var (
-	reNum      = regexp.MustCompile(`^\d{1,4}$`)
-	reNumDash  = regexp.MustCompile(`^\d{1,3}-\d{1,3}$`)
-	reNumRange = regexp.MustCompile(`^\d{1,3}(-\d{1,3})?$`)
-	rePartPage = regexp.MustCompile(`^([12])[/ ](\d{1,3})$`)
-)
-
+// Адрес страницы в общем скрипте reshebniki.php: predmet — код учебника на сайте,
+// otvet — номер задания в формате этого учебника.
 func reshebnik(predmet, otvet string) string {
 	return fmt.Sprintf("%s/otvet/reshebniki.php?otvet=%s&predmet=%s", reshakBase, otvet, predmet)
 }
 
-func badArg(usage string) error {
-	return fmt.Errorf("неверный номер, пример: %s", usage)
-}
-
-func algebraURL(a string) (string, error) {
-	if !reNum.MatchString(a) {
-		return "", badArg("/gdz алг 74")
-	}
-	return fmt.Sprintf("%s/otvet/otvet15.php?otvet=%s", reshakBase, a), nil
-}
-
-func geometryURL(a string) (string, error) {
-	if !reNum.MatchString(a) {
-		return "", badArg("/gdz геом 222")
-	}
-	return reshebnik("atan10_11", "new/"+a), nil
-}
-
-func russianURL(a string) (string, error) {
-	if !reNum.MatchString(a) {
-		return "", badArg("/gdz рус 50")
-	}
-	return reshebnik("ribchenkova10-11", a), nil
-}
-
-func physicsURL(a string) (string, error) { // «параграф-задание»
-	if !reNumDash.MatchString(a) {
-		return "", badArg("/gdz физ 21-1 (параграф-задание)")
-	}
-	return reshebnik("myakishev10", a), nil
-}
-
-func chemistryURL(a string) (string, error) { // «параграф-вопрос»
-	if !reNumDash.MatchString(a) {
-		return "", badArg("/gdz хим 4-1 (параграф-вопрос)")
-	}
-	return reshebnik("ostroumov10", a), nil
-}
-
-func literatureURL(a string) (string, error) { // «часть/страница»
-	m := rePartPage.FindStringSubmatch(a)
-	if m == nil {
-		return "", badArg("/gdz лит 1/134 (часть/страница)")
-	}
-	return reshebnik("lebedev_baz10", "part"+m[1]+"/"+m[2]), nil
-}
-
-func historyURL(a string) (string, error) { // номер параграфа
-	if !reNum.MatchString(a) {
-		return "", badArg("/gdz ист 1 (номер параграфа)")
-	}
-	return reshebnik("medinsky_vseobshaya10", a), nil
-}
-
-func englishURL(a string) (string, error) { // страницы: «8-9» или «12»
-	if !reNumRange.MatchString(a) {
-		return "", badArg("/gdz англ 8-9")
-	}
-	return fmt.Sprintf("%s/otvet/otvet_txt.php?otvet1=/forward10/images/%s", reshakBase, a), nil
+// Возвращает функцию-сборщик для reshebnik: к номеру задания дописывает prefix
+// (у геометрии это "new/") и подставляет код учебника predmet.
+func book(predmet, prefix string) func(string) string {
+	return func(a string) string { return reshebnik(predmet, prefix+a) }
 }
 
 // ───────────────────────────── ЗАГРУЗКА ─────────────────────────────
 
-// FetchGDZ скачивает страницу предмета и разбирает её.
+// Собирает URL (subject.URL), скачивает страницу через reshakGet (reshak.go)
+// и отдаёт её Parse-функции предмета. В результат дописывает адрес страницы.
 func FetchGDZ(ctx context.Context, s *gdzSubject, arg string) (GDZResult, error) {
 	pageURL, err := s.URL(strings.TrimSpace(arg))
 	if err != nil {
@@ -160,7 +155,7 @@ func FetchGDZ(ctx context.Context, s *gdzSubject, arg string) (GDZResult, error)
 	if err != nil {
 		return GDZResult{}, err
 	}
-	base, err := url.Parse(pageURL)
+	base, err := url.Parse(pageURL) // нужен, чтобы превращать относительные пути картинок в абсолютные
 	if err != nil {
 		return GDZResult{}, err
 	}
@@ -169,12 +164,16 @@ func FetchGDZ(ctx context.Context, s *gdzSubject, arg string) (GDZResult, error)
 	return res, err
 }
 
-// ───────────────────────────── ПАРСЕРЫ СТРАНИЦ ─────────────────────────────
+// ───────────────────────────── ПАРСЕРЫ ПРЕДМЕТОВ ─────────────────────────────
+// Все парсеры стартуют с newResult, а заканчивают finish. Их вызывает FetchGDZ
+// (через поле Parse) и тест на сохранённых страницах.
 
+// Создаёт пустой результат и кладёт в него заголовок страницы (h1.titleh1).
 func newResult(doc *goquery.Document) GDZResult {
 	return GDZResult{Title: collapseSpaces(strings.TrimSpace(doc.Find("h1.titleh1").First().Text()))}
 }
 
+// Возвращает результат как есть, а если кусков нет — добавляет errGDZEmpty.
 func finish(res GDZResult) (GDZResult, error) {
 	if len(res.Parts) == 0 {
 		return res, errGDZEmpty
@@ -182,45 +181,42 @@ func finish(res GDZResult) (GDZResult, error) {
 	return res, nil
 }
 
-// Алгебра, геометрия, русский: ответ — только картинки (решение №1, №2 и доп.).
+// Добавляет в конец текстовый кусок: жирный заголовок и текст под ним.
+// Пустой текст пропускает.
+func (r *GDZResult) addBlock(heading, text string) {
+	if text != "" {
+		r.Parts = append(r.Parts, GDZPart{Text: "<b>" + heading + "</b>\n" + text})
+	}
+}
+
+// Алгебра, геометрия, русский: на странице одни картинки решений.
 func parseImages(doc *goquery.Document, base *url.URL) (GDZResult, error) {
 	res := newResult(doc)
 	res.Parts = pageImages(doc, base)
 	return finish(res)
 }
 
-// Физика: картинки решений + (если есть) текстовый «ИИ-разбор».
+// Физика: картинки решений, а если на странице есть блок «ИИ-разбор» — то и его текст.
 func parsePhysics(doc *goquery.Document, base *url.URL) (GDZResult, error) {
 	res := newResult(doc)
 	res.Parts = pageImages(doc, base)
-	if ai := doc.Find(".ai-analysis__answer").First(); ai.Length() > 0 {
-		w := newWalker(base)
-		w.walk(ai)
-		w.flush()
-		if txt := joinText(w.parts); txt != "" {
-			res.Parts = append(res.Parts, GDZPart{Text: "<b>ИИ-разбор</b>\n" + txt})
-		}
-	}
+	res.addBlock("ИИ-разбор", walkText(doc.Find(".ai-analysis__answer").First(), base))
 	return finish(res)
 }
 
-// Химия: картинка решения + текст условия (блок .text_zad без служебной шапки).
+// Химия: картинка решения и текст условия из .text_zad (без строк-шаблонов сайта,
+// их вырезает dropBoilerplate).
 func parseChemistry(doc *goquery.Document, base *url.URL) (GDZResult, error) {
 	res := newResult(doc)
 	res.Parts = pageImages(doc, base)
-	if zad := doc.Find("article.lcol .text_zad").First(); zad.Length() > 0 {
-		w := newWalker(base)
-		w.walk(zad)
-		w.flush()
-		if txt := dropBoilerplate(joinText(w.parts)); txt != "" {
-			res.Parts = append(res.Parts, GDZPart{Text: "<b>Условие</b>\n" + txt})
-		}
-	}
+	cond := walkText(doc.Find("article.lcol .text_zad").First(), base)
+	res.addBlock("Условие", dropBoilerplate(cond))
 	return finish(res)
 }
 
-// Литература: много картинок (на стр. 134 их 35) + ссылка на презентацию, если есть.
-// Блок .text_zad здесь — это ~45 000 символов текста, его намеренно НЕ берём.
+// Литература: десятки картинок решения, затем ссылки на презентации из
+// fieldset.present. Блок .text_zad пропускается: на странице 134 в нём около
+// 45 000 символов.
 func parseLiterature(doc *goquery.Document, base *url.URL) (GDZResult, error) {
 	res := newResult(doc)
 	res.Parts = pageImages(doc, base)
@@ -235,44 +231,30 @@ func parseLiterature(doc *goquery.Document, base *url.URL) (GDZResult, error) {
 	return finish(res)
 }
 
-// История: сплошной текст (вопросы выделены жирным, есть таблица) с картинками
-// прямо посреди текста — порядок сохраняется.
+// История: весь ответ лежит в .mainInfo одним потоком — текст, таблицы и картинки
+// вперемешку. Walker сохраняет этот порядок.
 func parseHistory(doc *goquery.Document, base *url.URL) (GDZResult, error) {
 	res := newResult(doc)
-	root := doc.Find("article.lcol .mainInfo").First()
-	if root.Length() == 0 {
-		return res, errGDZEmpty
-	}
-	w := newWalker(base)
-	w.walk(root)
-	w.flush()
-	res.Parts = dedupeImages(w.parts)
+	res.Parts = mainInfoParts(doc, base)
 	return finish(res)
 }
 
-// Английский (Forward): только текст, оригинал + перевод курсивом.
+// Английский (Forward): .mainInfo содержит только текст — оригинал и перевод
+// курсивом. В заголовках решений убирается «#».
 func parseEnglish(doc *goquery.Document, base *url.URL) (GDZResult, error) {
 	res := newResult(doc)
-	root := doc.Find("article.lcol .mainInfo").First()
-	if root.Length() == 0 {
-		return res, errGDZEmpty
-	}
-	w := newWalker(base)
-	w.walk(root)
-	w.flush()
-	for _, p := range w.parts {
-		if p.Text != "" {
-			p.Text = strings.ReplaceAll(p.Text, "Решение #", "Решение")
-		}
-		res.Parts = append(res.Parts, p)
+	res.Parts = mainInfoParts(doc, base)
+	for i := range res.Parts {
+		res.Parts[i].Text = strings.ReplaceAll(res.Parts[i].Text, "Решение #", "Решение")
 	}
 	return finish(res)
 }
 
 // ───────────────────────────── ХЕЛПЕРЫ ─────────────────────────────
 
-// pageImages — все картинки решений в порядке документа:
-// pic_otvet1, pic_otvet1_dop1…N, pic_otvet2, pic_otvet2_dop1…N.
+// Берёт все картинки решений в порядке документа: сначала div'ы pic_otvet1,
+// pic_otvet1_dop1…N, затем pic_otvet2 и его dop. Повторы адресов отбрасывает.
+// Каждый адрес берётся через imgURL.
 func pageImages(doc *goquery.Document, base *url.URL) []GDZPart {
 	var out []GDZPart
 	seen := map[string]bool{}
@@ -287,12 +269,13 @@ func pageImages(doc *goquery.Document, base *url.URL) []GDZPart {
 	return out
 }
 
-// imgURL: lazyload кладёт настоящий адрес в data-src, обычные картинки — в src.
+// Достаёт из <img> настоящий адрес и делает его абсолютным относительно base.
+// Ленивая подгрузка кладёт адрес в data-src (или data-original), обычные картинки —
+// в src. Встроенные data:-картинки и не-http адреса пропускаются; пусто = адреса нет.
 func imgURL(s *goquery.Selection, base *url.URL) string {
 	for _, attr := range []string{"data-src", "data-original", "src"} {
-		v, ok := s.Attr(attr)
-		v = strings.TrimSpace(v)
-		if !ok || v == "" || strings.HasPrefix(v, "data:") {
+		v := strings.TrimSpace(s.AttrOr(attr, ""))
+		if v == "" || strings.HasPrefix(v, "data:") {
 			continue
 		}
 		ref, err := url.Parse(v)
@@ -307,37 +290,40 @@ func imgURL(s *goquery.Selection, base *url.URL) string {
 	return ""
 }
 
-func dedupeImages(parts []GDZPart) []GDZPart {
-	seen := map[string]bool{}
-	out := parts[:0:0]
-	for _, p := range parts {
-		if p.Image != "" {
-			if seen[p.Image] {
-				continue
-			}
-			seen[p.Image] = true
-		}
-		out = append(out, p)
-	}
-	return out
+// Прогоняет через walker содержимое article.lcol .mainInfo — главного блока
+// ответа на страницах истории и английского. Блока нет — вернёт пустой список.
+func mainInfoParts(doc *goquery.Document, base *url.URL) []GDZPart {
+	return walkParts(doc.Find("article.lcol .mainInfo").First(), base)
 }
 
-func joinText(parts []GDZPart) string {
-	var sb []string
-	for _, p := range parts {
+// Прогоняет через walker выбранный блок и возвращает его куски по порядку.
+func walkParts(sel *goquery.Selection, base *url.URL) []GDZPart {
+	w := newWalker(base)
+	w.walk(sel)
+	w.flush()
+	return w.parts
+}
+
+// То же, что walkParts, но склеивает в одну строку только текстовые куски
+// (картинки отбрасываются). Используется для блоков вроде .text_zad.
+func walkText(sel *goquery.Selection, base *url.URL) string {
+	var lines []string
+	for _, p := range walkParts(sel, base) {
 		if p.Text != "" {
-			sb = append(sb, p.Text)
+			lines = append(lines, p.Text)
 		}
 	}
-	return strings.TrimSpace(strings.Join(sb, "\n"))
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
+// Шаблонные первые слова строк, которые сайт добавляет к условию задачи.
 var boilerplateRe = regexp.MustCompile(`^(Рассмотрим вариант решения|Приведем выдержку)`)
 
-// dropBoilerplate убирает строки вида «Рассмотрим вариант решения задания из учебника…».
+// Построчно выбрасывает из текста строки, начинающиеся с boilerplateRe
+// (теги при проверке не учитываются; tagRe объявлен ниже). Вызывается из parseChemistry.
 func dropBoilerplate(text string) string {
 	var keep []string
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if boilerplateRe.MatchString(tagRe.ReplaceAllString(line, "")) {
 			continue
 		}
@@ -346,18 +332,21 @@ func dropBoilerplate(text string) string {
 	return strings.TrimSpace(strings.Join(keep, "\n"))
 }
 
+// Заменяет каждую серию пробельных символов (включая переносы и неразрывные
+// пробелы) одним обычным пробелом. Края не обрезает: walker.text по ведущему
+// пробелу решает, нужен ли разделитель между словами.
 func collapseSpaces(s string) string {
 	var sb strings.Builder
-	sp := false
+	prevSpace := false
 	for _, r := range s {
 		if unicode.IsSpace(r) {
-			if !sp {
+			if !prevSpace {
 				sb.WriteByte(' ')
 			}
-			sp = true
+			prevSpace = true
 			continue
 		}
-		sp = false
+		prevSpace = false
 		sb.WriteRune(r)
 	}
 	return sb.String()
@@ -365,14 +354,15 @@ func collapseSpaces(s string) string {
 
 // ───────────────────────────── HTML → Telegram-HTML ─────────────────────────────
 //
-// walker обходит DOM и собирает строки. Из форматирования оставляем только
-// <b> (strong, заголовки, .question) и <i> (i, em) — их понимает parse_mode=HTML.
-// Теги никогда не пересекают границу строки: при сбросе строки открытые теги
-// закрываются и открываются заново в следующей. Это нужно, чтобы потом можно
-// было резать текст по \n на сообщения ≤ 4096 символов, не ломая разметку.
+// walker обходит DOM и собирает строки текста. Из всей разметки оставляет только
+// <b> (b, strong, заголовки, .question) и <i> (i, em): их понимает parse_mode=HTML.
+// Теги не переходят через границу строки: при сбросе строки (flush) открытые теги
+// закрываются и открываются заново уже в следующей. Благодаря этому sendGDZ может
+// резать текст по символу \n (splitText) и не ломать разметку.
 
-var tagRe = regexp.MustCompile(`<[^>]+>`)
+var tagRe = regexp.MustCompile(`<[^>]+>`) // любой HTML-тег; для подсчёта видимого текста и для plainText
 
+// Теги, которые начинают и заканчивают строку.
 var blockTags = map[string]bool{
 	"div": true, "p": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
 	"ul": true, "ol": true, "li": true, "table": true, "tbody": true, "thead": true, "tr": true,
@@ -382,25 +372,31 @@ var blockTags = map[string]bool{
 
 type walker struct {
 	base    *url.URL
-	parts   []GDZPart
-	line    strings.Builder
-	visible bool // в текущей строке уже есть видимый текст
-	lastSp  bool
-	stack   []string // открытые теги форматирования
-	count   map[string]int
-	inCell  int // >0: внутри ячейки таблицы — блоки не рвут строку
-	cellIdx int
-	gap     bool // перед следующей строкой нужна пустая строка
+	parts   []GDZPart       // готовые куски; flush дописывает сюда строки
+	line    strings.Builder // строка, которая собирается сейчас
+	visible bool            // в текущей строке уже есть видимый текст
+	lastSp  bool            // текущая строка заканчивается пробелом
+	stack   []string        // открытые теги форматирования ("b", "i") в порядке открытия
+	count   map[string]int  // сколько раз открыт каждый тег (вложенные <b><b> дают один тег)
+	seenImg map[string]bool // адреса картинок, которые уже добавлены
+	inCell  int             // больше 0, пока идёт обход ячейки таблицы; блоки внутри ячейки строку не рвут
+	cellIdx int             // номер ячейки в текущей строке таблицы; со второй ячейки ставится « | »
+	gap     bool            // перед следующей строкой нужна пустая строка (после заголовка или вопроса)
 }
 
 func newWalker(base *url.URL) *walker {
-	return &walker{base: base, count: map[string]int{}}
+	return &walker{base: base, count: map[string]int{}, seenImg: map[string]bool{}}
 }
 
+// Обходит дочерние узлы выбранного элемента по порядку (см. node).
 func (w *walker) walk(s *goquery.Selection) {
 	s.Contents().Each(func(_ int, n *goquery.Selection) { w.node(n) })
 }
 
+// Обрабатывает один узел. Текст кладёт в текущую строку; <br> и блочные теги
+// заканчивают строку; <img> становится отдельным куском-картинкой (повторы
+// пропускаются); b, strong, em, i, заголовки и .question включают форматирование;
+// ячейки таблицы разделяются « | ». Остальные теги обходятся без разметки.
 func (w *walker) node(n *goquery.Selection) {
 	name := goquery.NodeName(n)
 	switch name {
@@ -420,16 +416,19 @@ func (w *walker) node(n *goquery.Selection) {
 	case "img":
 		if u := imgURL(n, w.base); u != "" {
 			w.flush()
-			w.parts = append(w.parts, GDZPart{Image: u})
+			if !w.seenImg[u] {
+				w.seenImg[u] = true
+				w.parts = append(w.parts, GDZPart{Image: u})
+			}
 		}
 		return
 	}
 
 	isHead := len(name) == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6'
-	isQ := n.HasClass("question")
+	isQuestion := n.HasClass("question")
 	fmtTag := ""
 	switch {
-	case name == "b" || name == "strong" || isHead || isQ:
+	case name == "b" || name == "strong" || isHead || isQuestion:
 		fmtTag = "b"
 	case name == "i" || name == "em":
 		fmtTag = "i"
@@ -439,7 +438,7 @@ func (w *walker) node(n *goquery.Selection) {
 	if block {
 		w.flush()
 	}
-	if isHead || isQ {
+	if isHead || isQuestion {
 		w.flush()
 		w.gap = true
 	}
@@ -470,6 +469,9 @@ func (w *walker) node(n *goquery.Selection) {
 	}
 }
 
+// Решает, пропускать ли узел вместе с содержимым: скрипты, стили, формы, кнопки,
+// навигация, блоки рекламы (id yandex_rtb…, классы empty_place, readmore-js-toggle,
+// text-zad-note) и всё с inline-стилем display:none. Вызывается из node.
 func skipNode(n *goquery.Selection, name string) bool {
 	switch name {
 	case "script", "style", "noscript", "noindex", "iframe", "button", "form", "nav", "svg", "audio", "video":
@@ -478,10 +480,8 @@ func skipNode(n *goquery.Selection, name string) bool {
 	if id, _ := n.Attr("id"); strings.HasPrefix(id, "yandex_rtb") {
 		return true
 	}
-	for _, c := range []string{"empty_place", "readmore-js-toggle", "text-zad-note"} {
-		if n.HasClass(c) {
-			return true
-		}
+	if slices.ContainsFunc([]string{"empty_place", "readmore-js-toggle", "text-zad-note"}, n.HasClass) {
+		return true
 	}
 	if st, _ := n.Attr("style"); strings.Contains(strings.ReplaceAll(st, " ", ""), "display:none") {
 		return true
@@ -489,6 +489,9 @@ func skipNode(n *goquery.Selection, name string) bool {
 	return false
 }
 
+// Добавляет текстовый узел в текущую строку: схлопывает пробелы (collapseSpaces),
+// экранирует спецсимволы HTML и отбрасывает ведущий пробел в начале строки и после
+// другого пробела.
 func (w *walker) text(s string) {
 	s = collapseSpaces(s)
 	if s == "" {
@@ -505,54 +508,71 @@ func (w *walker) text(s string) {
 	w.lastSp = s[len(s)-1] == ' '
 }
 
+// Дописывает в sb открывающий тег <tag>. Работает с walker.line и с builder'ом
+// закрывающих тегов в flush.
+func writeOpen(sb *strings.Builder, tag string) {
+	sb.WriteByte('<')
+	sb.WriteString(tag)
+	sb.WriteByte('>')
+}
+
+// Дописывает в sb закрывающий тег </tag>.
+func writeClose(sb *strings.Builder, tag string) {
+	sb.WriteString("</")
+	sb.WriteString(tag)
+	sb.WriteByte('>')
+}
+
+// Открывает тег форматирования в текущей строке. Если тег уже открыт (вложенный
+// <b> внутри <b>), только увеличивает счётчик и второй раз не пишет.
 func (w *walker) open(tag string) {
 	if w.count[tag] == 0 {
-		w.line.WriteString("<" + tag + ">")
+		writeOpen(&w.line, tag)
 		w.stack = append(w.stack, tag)
 	}
 	w.count[tag]++
 }
 
+// Закрывает тег форматирования, когда закрыт самый внешний из вложенных. Теги,
+// открытые после него, закрываются и тут же открываются заново, чтобы разметка
+// осталась правильно вложенной.
 func (w *walker) close(tag string) {
 	w.count[tag]--
 	if w.count[tag] > 0 {
 		return
 	}
-	idx := -1
-	for i := len(w.stack) - 1; i >= 0; i-- {
-		if w.stack[i] == tag {
-			idx = i
-			break
-		}
-	}
+	idx := slices.Index(w.stack, tag) // тег лежит в стеке не больше одного раза (см. open)
 	if idx < 0 {
 		return
 	}
-	tail := append([]string(nil), w.stack[idx+1:]...)
-	for i := len(w.stack) - 1; i >= idx; i-- {
-		w.line.WriteString("</" + w.stack[i] + ">")
+	tail := slices.Clone(w.stack[idx+1:]) // теги, открытые после закрываемого
+	for _, t := range slices.Backward(w.stack[idx:]) {
+		writeClose(&w.line, t)
 	}
 	for _, t := range tail {
-		w.line.WriteString("<" + t + ">")
+		writeOpen(&w.line, t)
 	}
 	w.stack = append(w.stack[:idx], tail...)
 }
 
-// flush завершает строку: закрывает открытые теги и открывает их заново в новой строке.
+// Завершает текущую строку: закрывает открытые теги и открывает их заново в
+// начале новой строки. Строку без видимого текста выбрасывает. Готовую строку
+// дописывает к предыдущему текстовому куску через \n (после заголовка или вопроса —
+// через пустую строку), а после картинки начинает новый кусок.
 func (w *walker) flush() {
 	line := w.line.String()
 	w.line.Reset()
 	w.visible, w.lastSp = false, false
 
-	closing := ""
-	for i := len(w.stack) - 1; i >= 0; i-- {
-		closing += "</" + w.stack[i] + ">"
+	var closing strings.Builder
+	for _, t := range slices.Backward(w.stack) {
+		writeClose(&closing, t)
 	}
 	for _, t := range w.stack {
-		w.line.WriteString("<" + t + ">")
+		writeOpen(&w.line, t)
 	}
 
-	line = strings.TrimSpace(line + closing)
+	line = strings.TrimSpace(line + closing.String())
 	line = strings.ReplaceAll(line, "</b><b>", "")
 	line = strings.ReplaceAll(line, "</i><i>", "")
 	if strings.TrimSpace(tagRe.ReplaceAllString(line, "")) == "" {

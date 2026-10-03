@@ -1,6 +1,10 @@
 package main
 
-// gdz_send.go — отправка GDZResult в Telegram и команда /gdz.
+// gdz_send.go — команда /gdz и отправка результата разбора в Telegram.
+//
+// Принимает GDZResult из gdz_parse.go (FetchGDZ) и отправляет его куски по порядку:
+// текст — HTML-сообщениями, картинки — альбомами. Картинки скачиваются через
+// DownloadImage из reshak.go. Обработчик подключается в initComs (main.go).
 
 import (
 	"bytes"
@@ -19,14 +23,17 @@ import (
 )
 
 const (
-	maxTextLen    = 3500 // лимит Telegram — 4096; с запасом на теги
-	maxAlbum      = 10   // максимум элементов в sendMediaGroup
-	maxCaptionLen = 1000 // лимит подписи — 1024
+	maxTextLen    = 3500 // длина одного текстового сообщения (лимит Telegram — 4096, остальное — запас на теги)
+	maxAlbum      = 10   // максимум фото в одном sendMediaGroup
+	maxCaptionLen = 1000 // длина подписи к фото (лимит Telegram — 1024)
 )
 
 // ───────────────────────────── КОМАНДА /gdz ─────────────────────────────
 
-// gdzCom заменяет rhwCom: /gdz <предмет> <номер>. Старый формат «/gdz 74» = алгебра.
+// Регистрирует обработчик /gdz <предмет> <номер>. Разбирает аргументы (resolveGDZ),
+// скачивает и разбирает страницу (FetchGDZ), отправляет результат (sendGDZ).
+// Ошибки скачивания и разбора пересылает пользователю текстом; без аргументов
+// отвечает справкой (gdzUsage).
 func gdzCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		chID := update.Message.Chat.ChatID()
@@ -36,7 +43,7 @@ func gdzCom(bh *th.BotHandler) {
 
 		fields := strings.Fields(update.Message.Text)
 		if len(fields) > 0 {
-			fields = fields[1:] // первое слово — сама команда (/gdz или /gdz@bot)
+			fields = fields[1:] // нулевое слово — сама команда (/gdz или /gdz@bot)
 		}
 		subj, arg := resolveGDZ(fields)
 		if subj == nil {
@@ -58,6 +65,9 @@ func gdzCom(bh *th.BotHandler) {
 	}, th.CommandEqual("gdz"))
 }
 
+// Определяет предмет по первому слову после команды (findGDZSubject), остальные
+// слова склеивает в аргумент. Старый формат «/gdz 74», где первое слово — число,
+// считается алгеброй. Предмет не нашёлся — возвращает nil.
 func resolveGDZ(args []string) (*gdzSubject, string) {
 	if len(args) == 0 {
 		return nil, ""
@@ -65,13 +75,15 @@ func resolveGDZ(args []string) (*gdzSubject, string) {
 	if s, ok := findGDZSubject(args[0]); ok {
 		return s, strings.Join(args[1:], " ")
 	}
-	if reNum.MatchString(args[0]) { // старый формат: /gdz 74
+	if reNum.MatchString(args[0]) {
 		s, _ := findGDZSubject("алг")
 		return s, strings.Join(args, " ")
 	}
 	return nil, ""
 }
 
+// Собирает текст справки по таблице gdzSubjects (gdz_parse.go): строка на предмет
+// с примером из поля Usage.
 func gdzUsage() string {
 	var sb strings.Builder
 	sb.WriteString("Формат: /gdz <предмет> <номер>\n\n")
@@ -83,40 +95,40 @@ func gdzUsage() string {
 
 // ───────────────────────────── ОТПРАВКА ─────────────────────────────
 
-// sendGDZ отправляет кусочки по порядку: подряд идущие картинки — альбомами
-// (по 10), текст — сообщениями ≤ maxTextLen. Заголовок страницы идёт подписью
-// к первой картинке, а если ответ начинается с текста — жирной первой строкой.
+// Идёт по res.Parts и отправляет куски в исходном порядке. Подряд идущие картинки
+// копит и отправляет одним вызовом sendImages, текст режет splitText и шлёт через
+// sendHTML. Заголовок страницы идёт подписью к первой картинке, а если ответ
+// начинается с текста — жирной первой строкой. Возвращает ошибку, если часть
+// картинок не доставлена.
 func sendGDZ(ctx *th.Context, chID telego.ChatID, res GDZResult) error {
-	caption, titleHTML := "", ""
+	caption, textHead := "", ""
 	if title := strings.TrimSpace(res.Title); title != "" {
 		if len(res.Parts) > 0 && res.Parts[0].Image != "" {
 			caption = title
 		} else {
-			titleHTML = "<b>" + html.EscapeString(title) + "</b>\n\n"
+			textHead = "<b>" + html.EscapeString(title) + "</b>\n\n"
 		}
 	}
 
-	var imgs []string
-	var failed int
+	var pending []string // картинки, ещё не отправленные
+	failed := 0
 	flushImages := func() {
-		if len(imgs) == 0 {
-			return
+		if len(pending) > 0 {
+			failed += sendImages(ctx, chID, pending, res.URL, caption)
+			caption, pending = "", nil // подпись нужна только первой группе
 		}
-		failed += sendImages(ctx, chID, imgs, res.URL, caption)
-		caption = ""
-		imgs = nil
 	}
 
 	for _, p := range res.Parts {
 		if p.Image != "" {
-			imgs = append(imgs, p.Image)
+			pending = append(pending, p.Image)
 			continue
 		}
 		flushImages()
-		for _, chunk := range splitText(titleHTML+p.Text, maxTextLen) {
+		for _, chunk := range splitText(textHead+p.Text, maxTextLen) {
 			sendHTML(ctx, chID, chunk)
 		}
-		titleHTML = ""
+		textHead = "" // заголовок выводится один раз, перед первым текстом
 	}
 	flushImages()
 
@@ -126,24 +138,27 @@ func sendGDZ(ctx *th.Context, chID telego.ChatID, res GDZResult) error {
 	return nil
 }
 
+// Отправляет одно сообщение с parse_mode=HTML. Если Telegram отверг разметку
+// (например, тег оказался разрезан), повторяет то же сообщение обычным текстом
+// без тегов (plainText). После отправки ждёт 300 мс, чтобы не упереться в лимиты.
 func sendHTML(ctx *th.Context, chID telego.ChatID, text string) {
-	_, err := ctx.Bot().SendMessage(ctx, tu.Message(chID, text).WithParseMode(telego.ModeHTML))
-	if err != nil {
-		// битая разметка (например, длинную строку разрезали внутри тега) —
-		// повторяем без форматирования
+	if _, err := ctx.Bot().SendMessage(ctx, tu.Message(chID, text).WithParseMode(telego.ModeHTML)); err != nil {
 		log.Println("gdz: sendMessage(HTML):", err)
 		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, plainText(text)))
 	}
 	time.Sleep(300 * time.Millisecond)
 }
 
+// Скачанная картинка: имя файла для Telegram и её байты.
 type gdzFile struct {
 	name string
 	data []byte
 }
 
-// sendImages скачивает картинки (Telegram сам с reshak.ru не скачает — DDoS-Guard)
-// и отправляет альбомами. Возвращает число картинок, которые не удалось доставить.
+// Скачивает картинки по адресам (DownloadImage из reshak.go; Telegram сам с
+// reshak.ru не скачает), нарезает на группы по maxAlbum и отправляет каждую
+// через sendAlbum. Подпись получает только первая группа. Возвращает число
+// картинок, которые не удалось ни скачать, ни отправить.
 func sendImages(ctx *th.Context, chID telego.ChatID, urls []string, referer, caption string) (failed int) {
 	var files []gdzFile
 	for i, u := range urls {
@@ -157,71 +172,74 @@ func sendImages(ctx *th.Context, chID telego.ChatID, urls []string, referer, cap
 		time.Sleep(150 * time.Millisecond)
 	}
 
-	if caption = plainText(caption); utf8.RuneCountInString(caption) > maxCaptionLen {
-		caption = string([]rune(caption)[:maxCaptionLen])
+	caption = plainText(caption)
+	if r := []rune(caption); len(r) > maxCaptionLen {
+		caption = string(r[:maxCaptionLen])
 	}
 
 	for start := 0; start < len(files); start += maxAlbum {
-		chunk := files[start:min(start+maxAlbum, len(files))]
-		c := ""
-		if start == 0 {
-			c = caption
-		}
-		failed += sendChunk(ctx, chID, chunk, c)
+		failed += sendAlbum(ctx, chID, files[start:min(start+maxAlbum, len(files))], caption)
+		caption = ""
 		time.Sleep(400 * time.Millisecond)
 	}
 	return failed
 }
 
-func sendChunk(ctx *th.Context, chID telego.ChatID, chunk []gdzFile, caption string) (failed int) {
-	if len(chunk) == 1 {
-		if err := sendOne(ctx, chID, chunk[0], caption); err != nil {
-			return 1
+// Отправляет группу картинок одним альбомом (sendMediaGroup), подпись ставит на
+// первую. Если в группе одна картинка или Telegram отклонил альбом (одна плохая
+// картинка роняет все), шлёт картинки по одной через sendOne. Возвращает число
+// неотправленных.
+func sendAlbum(ctx *th.Context, chID telego.ChatID, files []gdzFile, caption string) (failed int) {
+	if len(files) > 1 {
+		media := make([]telego.InputMedia, 0, len(files))
+		for i, f := range files {
+			m := tu.MediaPhoto(tu.FileFromReader(bytes.NewReader(f.data), f.name))
+			if i == 0 && caption != "" {
+				m = m.WithCaption(caption)
+			}
+			media = append(media, m)
 		}
-		return 0
-	}
-	media := make([]telego.InputMedia, 0, len(chunk))
-	for i, f := range chunk {
-		m := tu.MediaPhoto(tu.FileFromReader(bytes.NewReader(f.data), f.name))
-		if i == 0 && caption != "" {
-			m = m.WithCaption(caption)
+		_, err := ctx.Bot().SendMediaGroup(ctx, tu.MediaGroup(chID, media...))
+		if err == nil {
+			return 0
 		}
-		media = append(media, m)
-	}
-	if _, err := ctx.Bot().SendMediaGroup(ctx, tu.MediaGroup(chID, media...)); err != nil {
-		// одна неподходящая картинка роняет весь альбом — шлём по одной
 		log.Println("gdz: sendMediaGroup:", err)
-		for i, f := range chunk {
-			c := ""
-			if i == 0 {
-				c = caption
-			}
-			if err := sendOne(ctx, chID, f, c); err != nil {
-				failed++
-			}
+	}
+
+	for i, f := range files {
+		c := ""
+		if i == 0 {
+			c = caption
+		}
+		if sendOne(ctx, chID, f, c) != nil {
+			failed++
+		}
+		if i < len(files)-1 {
 			time.Sleep(300 * time.Millisecond)
 		}
 	}
 	return failed
 }
 
-// sendOne шлёт фото; если Telegram его не принял (слишком длинная/узкая и т.п.) —
-// отправляет тот же файл документом.
+// Отправляет одну картинку как фото. Если Telegram фото не принял (слишком
+// длинная или узкая картинка), отправляет тот же файл документом. Возвращает
+// ошибку, только если не получилось и это.
 func sendOne(ctx *th.Context, chID telego.ChatID, f gdzFile, caption string) error {
-	p := tu.Photo(chID, tu.FileFromReader(bytes.NewReader(f.data), f.name))
+	photo := tu.Photo(chID, tu.FileFromReader(bytes.NewReader(f.data), f.name))
 	if caption != "" {
-		p = p.WithCaption(caption)
+		photo = photo.WithCaption(caption)
 	}
-	if _, err := ctx.Bot().SendPhoto(ctx, p); err == nil {
+	_, err := ctx.Bot().SendPhoto(ctx, photo)
+	if err == nil {
 		return nil
-	} else {
-		log.Println("gdz: sendPhoto:", f.name, err)
 	}
-	d := tu.Document(chID, tu.FileFromReader(bytes.NewReader(f.data), f.name))
+	log.Println("gdz: sendPhoto:", f.name, err)
+
+	doc := tu.Document(chID, tu.FileFromReader(bytes.NewReader(f.data), f.name)) // читатель нужен новый: прошлый уже прочитан
 	if caption != "" {
-		d = d.WithCaption(caption)
+		doc = doc.WithCaption(caption)
 	}
-	if _, err := ctx.Bot().SendDocument(ctx, d); err != nil {
+	if _, err := ctx.Bot().SendDocument(ctx, doc); err != nil {
 		log.Println("gdz: sendDocument:", f.name, err)
 		return err
 	}
@@ -230,6 +248,8 @@ func sendOne(ctx *th.Context, chID telego.ChatID, f gdzFile, caption string) err
 
 // ───────────────────────────── УТИЛИТЫ ─────────────────────────────
 
+// Берёт расширение из пути адреса картинки (png, jpg, jpeg, webp, gif);
+// если расширение другое или адрес не разобрался — возвращает ".png".
 func imgExt(rawURL string) string {
 	if u, err := url.Parse(rawURL); err == nil {
 		switch ext := strings.ToLower(path.Ext(u.Path)); ext {
@@ -240,42 +260,46 @@ func imgExt(rawURL string) string {
 	return ".png"
 }
 
-// plainText убирает теги и разэкранирует сущности.
+// Вырезает из HTML-строки теги (tagRe из gdz_parse.go) и превращает &amp;, &#39;
+// и подобное обратно в обычные символы. Нужна для подписей и для повторной
+// отправки текста без разметки.
 func plainText(s string) string {
 	return html.UnescapeString(tagRe.ReplaceAllString(s, ""))
 }
 
-// splitText режет текст по границам строк на куски ≤ limit символов.
-// Строки длиннее limit режутся по пробелам.
+// Режет текст на куски не длиннее limit символов, склеивая целые строки.
+// Границы проходят только между строками (walker из gdz_parse.go нигде не
+// оставляет открытые теги на конце строки); строки, которые длиннее limit,
+// предварительно режет cutLong.
 func splitText(s string, limit int) []string {
-	var out []string
-	var cur strings.Builder
-	curLen := 0
-	push := func() {
-		if t := strings.TrimSpace(cur.String()); t != "" {
+	var out, cur []string // готовые куски; строки куска, который собирается
+	curLen := 0           // длина cur с учётом переносов между строками
+	flush := func() {
+		if t := strings.TrimSpace(strings.Join(cur, "\n")); t != "" {
 			out = append(out, t)
 		}
-		cur.Reset()
-		curLen = 0
+		cur, curLen = nil, 0
 	}
 	for _, line := range strings.Split(s, "\n") {
 		for _, piece := range cutLong(line, limit) {
 			n := utf8.RuneCountInString(piece)
 			if curLen+n+1 > limit {
-				push()
+				flush()
 			}
-			if curLen > 0 {
-				cur.WriteByte('\n')
-				curLen++
+			if len(cur) > 0 {
+				curLen++ // перенос строки перед piece
 			}
-			cur.WriteString(piece)
+			cur = append(cur, piece)
 			curLen += n
 		}
 	}
-	push()
+	flush()
 	return out
 }
 
+// Режет одну длинную строку на части не длиннее limit символов. Место разреза
+// ищет по последнему пробелу во второй половине допустимой длины; если пробела
+// нет — режет ровно по limit. Пробелы в начале каждой следующей части убирает.
 func cutLong(s string, limit int) []string {
 	r := []rune(s)
 	var out []string

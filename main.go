@@ -421,17 +421,23 @@ func termCom(bh *th.BotHandler) {
 				update.Message.MessageID))
 			return nil
 		}
-		ctx.Bot().SendMessage(ctx, tu.Message(update.Message.Chat.ChatID(), "Ищу значение."))
+		m, er := ctx.Bot().SendMessage(ctx, tu.Message(update.Message.Chat.ChatID(), "Ищу значение."))
+		if er != nil {
+			return er
+		}
 		word := strings.TrimSpace(strings.ToLower(update.Message.Text))
 		word = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(word,
 			"значение"),
 			"термин"),
 			"/term")
+		txt := "Произошла непредвиденная ошибка"
 		_, te, e := ruwiki.SearchTerm(word)
 		if e != nil {
 			log.Fatal(e)
+		} else {
+			txt = te
 		}
-		ctx.Bot().SendMessage(ctx, tu.Message(tu.ID(update.Message.From.ID), te))
+		ctx.Bot().EditMessageText(ctx, tu.EditMessageText(update.Message.Chat.ChatID(), m.MessageID, txt))
 		return e
 	}, th.Or(
 		th.CommandEqual("term"),
