@@ -64,6 +64,7 @@ func main() {
 	flag.BoolVar(&rp, "rp-coms", rp, "Enable RP handler")
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
 	flag.StringVar(&tabPath, "table-path", tabPath, "path to table with data")
+	flag.StringVar(&claPath, "clsmts-table-path", claPath, "path to table with classmates")
 	flag.Parse()
 	browser, brrErr = ruwiki.StartChrome()
 	if brrErr != nil {
@@ -158,14 +159,17 @@ func setCom(bh *th.BotHandler) {
 }
 func fioCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		it := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/name ")
-		it = strings.TrimPrefix(it, "имя")
-		it = strings.TrimPrefix(it, "учитель")
+		fields := strings.Fields(update.Message.Text)
+		if len(fields) > 1 {
+			fields = fields[1:]
+		} else {
+			fields = []string{""}
+		}
 		result := "Имя: не найдено"
 	search:
 		for _, e := range teacherLookup {
 			for _, alias := range e.aliases {
-				if strings.Contains(it, alias) {
+				if strings.Contains(fields[0], alias) {
 					result = fmt.Sprintf("Имя%s: %s", e.subject, e.fio)
 					break search
 				}
@@ -425,13 +429,14 @@ func termCom(bh *th.BotHandler) {
 		if er != nil {
 			return er
 		}
-		word := strings.TrimSpace(strings.ToLower(update.Message.Text))
-		word = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(word,
-			"значение"),
-			"термин"),
-			"/term")
+		fields := strings.Fields(update.Message.Text)
+		if len(fields) > 1 {
+			fields = fields[1:]
+		} else {
+			fields = []string{""}
+		}
 		txt := "Произошла непредвиденная ошибка"
-		_, te, e := ruwiki.SearchTerm(word)
+		_, te, e := ruwiki.SearchTerm(fields[0])
 		if e != nil {
 			log.Fatal(e)
 		} else {

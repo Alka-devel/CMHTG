@@ -62,7 +62,14 @@ func gdzCom(bh *th.BotHandler) {
 			reply("Не всё удалось отправить: " + err.Error())
 		}
 		return nil
-	}, th.CommandEqual("gdz"))
+	}, th.Or(
+		th.CommandEqual("gdz"),
+		th.TextPrefix("гдз"),
+		th.TextPrefix("решение"),
+		th.TextPrefix("задание"),
+		th.TextPrefix("ответ"),
+		
+	))
 }
 
 // Определяет предмет по первому слову после команды (findGDZSubject), остальные
