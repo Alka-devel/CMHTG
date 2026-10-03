@@ -42,7 +42,7 @@ var teacherLookup = []teacherEntry{
 }
 var (
 	// ───────────── PATHS ─────────────
-	path    = "schedule.json"
+	tabPath = "schedule.json"
 	claPath = "classmates.json"
 	// ───────────── REGISTER ─────────────
 	week    *WeekSchedule
@@ -63,7 +63,8 @@ func main() {
 	flag.BoolVar(&emojiEnabled, "emojiEnabled", emojiEnabled, "Enable emoji handler")
 	flag.BoolVar(&rp, "rp-coms", rp, "Enable RP handler")
 	flag.StringVar(&botToken, "token", "", "Token from BotFather")
-	flag.StringVar(&path, "table-path", path, "path to table with data")
+	flag.StringVar(&tabPath, "table-path", tabPath, "path to table with data")
+	flag.StringVar(&claPath, "clsmts-table-path", claPath, "path to table with classmates")
 	flag.Parse()
 	browser, brrErr = ruwiki.StartChrome()
 	if brrErr != nil {
@@ -72,7 +73,7 @@ func main() {
 	defer browser.Close()
 
 	Groups, grErr = LoadClassRegistry(claPath)
-	week, weekErr = LoadWeekSchedule(path)
+	week, weekErr = LoadWeekSchedule(tabPath)
 	if grErr != nil {
 		log.Fatal(grErr)
 	}
@@ -106,6 +107,7 @@ func initComs(bh *th.BotHandler) {
 	callbackHan(bh)
 	fioCom(bh)
 	VACUUUUMCLEANEER(bh)
+	gdzCom(bh)
 	interCom(bh)
 	setCom(bh)
 	delDayCom(bh)
@@ -122,7 +124,7 @@ func initComs(bh *th.BotHandler) {
 func delDayCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		chID := tu.ID(update.Message.Chat.ID)
-		args := strings.TrimPrefix(update.Message.Text, "/delDay ")
+		args := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/delday ")
 		date, err := time.Parse(dateLayout, args)
 		if err != nil {
 			_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, fmt.Sprintf("Неверный формат: %s", err)))
@@ -134,7 +136,7 @@ func delDayCom(bh *th.BotHandler) {
 		}
 		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, "День удалён из расписания"))
 		return nil
-	}, th.CommandEqual("delDay"))
+	}, th.CommandEqual("delday"))
 }
 func setCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
@@ -147,7 +149,7 @@ func setCom(bh *th.BotHandler) {
 			return nil
 		}
 		week.SetDay(day)
-		if e := week.Save(path); e != nil {
+		if e := week.Save(tabPath); e != nil {
 			_, _ = ctx.Bot().SendMessage(ctx, tu.Message(chID, fmt.Sprintln(e)))
 			return nil
 		}
@@ -157,14 +159,17 @@ func setCom(bh *th.BotHandler) {
 }
 func fioCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		it := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/name ")
-		it = strings.TrimPrefix(it, "имя")
-		it = strings.TrimPrefix(it, "учитель")
+		fields := strings.Fields(update.Message.Text)
+		if len(fields) > 1 {
+			fields = fields[1:]
+		} else {
+			fields = []string{""}
+		}
 		result := "Имя: не найдено"
 	search:
 		for _, e := range teacherLookup {
 			for _, alias := range e.aliases {
-				if strings.Contains(it, alias) {
+				if strings.Contains(fields[0], alias) {
 					result = fmt.Sprintf("Имя%s: %s", e.subject, e.fio)
 					break search
 				}
@@ -420,17 +425,24 @@ func termCom(bh *th.BotHandler) {
 				update.Message.MessageID))
 			return nil
 		}
-		ctx.Bot().SendMessage(ctx, tu.Message(update.Message.Chat.ChatID(), "Ищу значение."))
-		word := strings.TrimSpace(strings.ToLower(update.Message.Text))
-		word = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(word,
-			"значение"),
-			"термин"),
-			"/term")
-		_, te, e := ruwiki.SearchTerm(word)
+		m, er := ctx.Bot().SendMessage(ctx, tu.Message(update.Message.Chat.ChatID(), "Ищу значение."))
+		if er != nil {
+			return er
+		}
+		fields := strings.Fields(update.Message.Text)
+		if len(fields) > 1 {
+			fields = fields[1:]
+		} else {
+			fields = []string{""}
+		}
+		txt := "Произошла непредвиденная ошибка"
+		_, te, e := ruwiki.SearchTerm(fields[0])
 		if e != nil {
 			log.Fatal(e)
+		} else {
+			txt = te
 		}
-		ctx.Bot().SendMessage(ctx, tu.Message(tu.ID(update.Message.From.ID), te))
+		ctx.Bot().EditMessageText(ctx, tu.EditMessageText(update.Message.Chat.ChatID(), m.MessageID, txt))
 		return e
 	}, th.Or(
 		th.CommandEqual("term"),

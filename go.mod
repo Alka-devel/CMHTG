@@ -4,12 +4,14 @@ go 1.27.0
 
 require (
 	github.com/Alka-devel/ruwiki-term v0.0.0-20261001110935-3178093daae4
+	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/fogleman/gg v1.3.0
 	github.com/mymmrac/telego v1.12.1
 	golang.org/x/image v0.46.0
 )
 
 require (
+	github.com/andybalholm/cascadia v1.3.4 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.4 // indirect
 	github.com/bytedance/sonic/loader v0.5.2 // indirect
@@ -33,6 +35,7 @@ require (
 	github.com/valyala/fasthttp v1.74.0 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
 	golang.org/x/arch v0.31.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/tools v0.50.0 // indirect
