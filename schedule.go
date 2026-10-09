@@ -119,8 +119,14 @@ func (s LessonStatus) Params(t telego.ChatID, day ScheduleDay) *telego.SendMessa
 	}
 	var subject string = "не у нас"
 	var room int
+	var grr Group
+	if gr, ok := Groups.GetGroup(t.ID); ok {
+		grr = gr
+	} else {
+		grr = Empty
+	}
 	for _, e := range day.Entries {
-		if e.Number == s.LessonIndex+1 {
+		if e.Number == s.LessonIndex+1 && e.Group == grr {
 			subject, room = e.Subject, e.Room
 		}
 	}
@@ -203,7 +209,8 @@ type LessonEntry struct {
 	Subject string
 	Room    int
 	Addi    bool
-	IsIT    bool
+	Group   Group
+	IdIT    bool
 	IsSE    bool
 }
 
@@ -252,24 +259,23 @@ func ParseSchedule(r io.Reader) (ScheduleDay, error) {
 		if err != nil {
 			return ScheduleDay{}, fmt.Errorf("строка %d: некорректный номер кабинета: %w", lineNum, err)
 		}
+		subjName, grr := parseSubjName(strings.TrimSpace(parts[1]))
 		if additLes == false && count == 1 {
 			day.Entries = append(day.Entries, LessonEntry{
 				Number:  number,
-				Subject: subjName(strings.TrimSpace(parts[1])),
+				Subject: subjName,
 				Room:    room,
 				Addi:    false,
-				IsIT:    it(strings.TrimSpace(parts[1])),
-				IsSE:    se(strings.TrimSpace(parts[1])),
+				Group:   grr,
 			})
 		}
 		if additLes == true {
 			day.Entries = append(day.Entries, LessonEntry{
 				Number:  number,
-				Subject: subjName(strings.TrimSpace(parts[1])),
+				Subject: subjName,
 				Room:    room,
 				Addi:    true,
-				IsIT:    it(strings.TrimSpace(parts[1])),
-				IsSE:    se(strings.TrimSpace(parts[1])),
+				Group:   grr,
 			})
 		}
 	}
@@ -281,15 +287,18 @@ func ParseSchedule(r io.Reader) (ScheduleDay, error) {
 	}
 	return day, nil
 }
-func subjName(str string) string {
+func parseSubjName(str string) (string, Group) {
+	var grr = Empty
+	var estr string
+	switch {
+	case strings.Contains(str, "(и.т.)"):
+		grr = InfTec
+	case strings.Contains(str, "(с.э.)"):
+		grr = SocEco
+	}
 	st := strings.TrimSuffix(str, "(и.т.)")
-	return strings.TrimSuffix(st, "(с.э.)")
-}
-func it(str string) bool {
-	return strings.Contains(str, "(и.т.)")
-}
-func se(str string) bool {
-	return strings.Contains(str, "(с.э.)")
+	estr = strings.TrimSuffix(st, "(с.э.)")
+	return estr, grr
 }
 
 type WeekSchedule struct {
