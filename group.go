@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
 type Group int8
@@ -15,35 +17,86 @@ const (
 	InfTec
 )
 
+type Classmate struct {
+	Group        Group     `json:"group"`
+	Name         string    `json:"name,omitempty"`
+	Notify       bool      `json:"notify,omitempty"`
+	LastRemember time.Time `json:"last_remember,omitzero"`
+	Configured   bool      `json:"configured,omitempty"`
+}
+
 type ClassRegistry struct {
-	Group map[int64]Group `json:"groups"`
+	Users map[int64]Classmate
 	mu    sync.Mutex
 }
 
-func (c *ClassRegistry) SetGroup(chatID int64, g Group) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.Group[chatID] = g
+func (c *Classmate) UnmarshalJSON(b []byte) error {
+	var g Group
+	if err := json.Unmarshal(b, &g); err == nil {
+		*c = Classmate{Group: g}
+		return nil
+	}
+	type plain Classmate
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*c = Classmate(p)
+	return nil
 }
 
-func (c *ClassRegistry) GetGroup(chatID int64) (Group, bool) {
+func (c *ClassRegistry) GetGroup(id int64) (Group, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	g, ok := c.Group[chatID]
-	return g, ok
+	u, ok := c.Users[id]
+	return u.Group, ok
+}
+
+func (c *ClassRegistry) SetGroup(id int64, g Group) {
+	c.Update(id, func(u *Classmate) { u.Group = g })
+}
+
+func (c *ClassRegistry) Update(id int64, fn func(*Classmate)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	u := c.Users[id]
+	fn(&u)
+	c.Users[id] = u
+}
+
+func (c *ClassRegistry) Get(id int64) (Classmate, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	u, ok := c.Users[id]
+	return u, ok
+}
+
+func (c *ClassRegistry) IDs() []int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ids := make([]int64, 0, len(c.Users))
+	for id := range c.Users {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (c *ClassRegistry) Save(path string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	data, err := json.MarshalIndent(c.Group, "", "  ")
+	data, err := json.MarshalIndent(c.Users, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
+
 func LoadClassRegistry(path string) (*ClassRegistry, error) {
-	c := &ClassRegistry{Group: make(map[int64]Group)}
+	c := &ClassRegistry{Users: make(map[int64]Classmate)}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return c, nil
@@ -51,15 +104,23 @@ func LoadClassRegistry(path string) (*ClassRegistry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, &c.Group); err != nil {
-		return nil, err
+	if err := json.Unmarshal(data, &c.Users); err != nil {
+		return nil, fmt.Errorf("разбор %s: %w", path, err)
+	}
+	if c.Users == nil {
+		c.Users = make(map[int64]Classmate)
 	}
 	return c, nil
 }
 
 func Check(chatid int64) bool {
-	_, nah := Groups.GetGroup(chatid)
-	return nah
+	g, ok := Groups.GetGroup(chatid)
+	return ok && g != Empty
+}
+
+func CheckConfigured(chatid int64) bool {
+	cls, ok := Groups.Get(chatid)
+	return ok && cls.Configured
 }
 
 func (g Group) String() string {

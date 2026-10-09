@@ -25,7 +25,7 @@ func callbackHan(bh *th.BotHandler) {
 	bh.HandleCallbackQuery(func(ctx *th.Context, query telego.CallbackQuery) error {
 		chID := query.Message.GetChat().ChatID()
 		if strings.HasPrefix(query.Data, "showScheduleImg") {
-			_ = ctx.Bot().AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{})
+			_ = ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(query.ID))
 			if dsa := strings.Split(strings.TrimPrefix(query.Data, "showScheduleImg:"), ":"); dsa[0] != "" {
 				force := false
 				grr := Empty
@@ -51,7 +51,6 @@ func callbackHan(bh *th.BotHandler) {
 				return nil
 			}
 		}
-		_ = ctx.Bot().AnswerCallbackQuery(ctx, &telego.AnswerCallbackQueryParams{})
 		switch query.Data {
 		case "showSchedule":
 			deleteQueryMessage(ctx, query)
@@ -66,20 +65,29 @@ func callbackHan(bh *th.BotHandler) {
 		case "nothing":
 			deleteQueryMessage(ctx, query)
 		case "it":
-			Groups.SetGroup(chID.ID, InfTec)
+			Groups.SetGroup(query.From.ID, InfTec)
 			if e := Groups.Save(claPath); e != nil {
 				fmt.Println(e)
 				break
 			}
 			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chID, query.Message.GetMessageID(), "Успешно установлена группа ИТ"))
 		case "se":
-			Groups.SetGroup(chID.ID, SocEco)
+			Groups.SetGroup(query.From.ID, SocEco)
 			if e := Groups.Save(claPath); e != nil {
 				fmt.Println(e)
 				break
 			}
 			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chID, query.Message.GetMessageID(), "Успешно установлена группа СЭ"))
+		case "cab":
+			//
+			// 👤5879770735999717115 Личный кабинет
+			// 🆔5927118708873892465 Ваш ID: 5613804018
+			// 📁5877332341331857066 Твоя группа: ИТ
+			// 🔊5890997763331591703 Уведомления: Включены
+			//
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chID, query.Message.GetMessageID(), ""))
 		}
+		_ = ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(query.ID))
 		return nil
 	}, th.AnyCallbackQueryWithMessage())
 }

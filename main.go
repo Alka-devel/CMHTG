@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Alka-devel/ruwiki-term"
@@ -56,15 +58,17 @@ var (
 	rp           = false
 	emojiEnabled = false
 	botToken     string
+	ownerID      int64
 )
 
 func main() {
 	fmt.Println("Start")
 	flag.BoolVar(&emojiEnabled, "emojiEnabled", emojiEnabled, "Enable emoji handler")
 	flag.BoolVar(&rp, "rp-coms", rp, "Enable RP handler")
-	flag.StringVar(&botToken, "token", "", "Token from BotFather")
+	flag.StringVar(&botToken, "token", botToken, "Token from BotFather")
 	flag.StringVar(&tabPath, "table-path", tabPath, "path to table with data")
 	flag.StringVar(&claPath, "clsmts-table-path", claPath, "path to table with classmates")
+	flag.Int64Var(&ownerID, "owner-tg-id", ownerID, "Telegram ID of owner of bot")
 	flag.Parse()
 	browser, brrErr = ruwiki.StartChrome()
 	if brrErr != nil {
@@ -81,21 +85,25 @@ func main() {
 		log.Fatal(weekErr)
 	}
 
-	bot, ctx := load()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	bot := load()
 	updates, _ := bot.UpdatesViaLongPolling(ctx, nil)
 	bh, _ := th.NewBotHandler(bot, updates)
 	defer func() { _ = bh.Stop() }()
 	initComs(bh)
+	startScheduler(ctx, bot, 25*time.Minute)
 	_ = bh.Start()
 }
-func load() (*telego.Bot, context.Context) {
-	ctx := context.Background()
+
+func load() *telego.Bot {
 	bot, err := telego.NewBot(botToken, telego.WithExtendedDefaultLogger(false, true, nil), telego.WithHTTPClient(&http.Client{}))
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(0)
+		os.Exit(1)
 	}
-	return bot, ctx
+	return bot
 }
 func initComs(bh *th.BotHandler) {
 	//============
@@ -103,6 +111,7 @@ func initComs(bh *th.BotHandler) {
 	reGroupCom(bh)
 	startCom(bh)
 	anonmsgCom(bh, 138)
+	infoCom(bh)
 	scheduleCom(bh)
 	callbackHan(bh)
 	fioCom(bh)
@@ -165,7 +174,7 @@ func fioCom(bh *th.BotHandler) {
 		} else {
 			fields = []string{""}
 		}
-		result := "Имя: не найдено"
+		result := "Имя: не найдено\nФормат: /name *предмет*\nПример: имя алгебра"
 	search:
 		for _, e := range teacherLookup {
 			for _, alias := range e.aliases {
@@ -299,31 +308,37 @@ func interCom(bh *th.BotHandler) {
 		return nil
 	}, th.Or(th.CommandEqual("interruption"), th.TextContains("Перемена"), th.TextContains("перемена")))
 }
+
 func startCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
-			tu.ID(update.Message.Chat.ID),
-			fmt.Sprintf("Привет, %s! Если вдруг у тебя появились идеи или хочешь сообщить об ошибке, пиши @ThisNameReallyExists ☺️", update.Message.From.FirstName),
-		).WithReplyMarkup(tu.Keyboard(
-			tu.KeyboardRow(
-				tu.KeyboardButton("Расписание"),
-				tu.KeyboardButton("Перемена"),
-			),
-			tu.KeyboardRow(tu.KeyboardButton("Поменять группу")),
-		).WithResizeKeyboard()))
-		if !Check(update.Message.Chat.ID) {
-			ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
-				update.Message.Chat.ChatID(),
-				tu.Entity("Также тебе надо сделать выбор в какой ты группе!"),
-			).WithReplyMarkup(tu.InlineKeyboard(
-				tu.InlineKeyboardRow(
-					tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
-					tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
-				),
-			)))
-		}
+		_, _ = ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
+			tu.ID(update.Message.From.ID),
+			tu.Entity("✈️").CustomEmoji("5875465628285931233"), tu.Entityf(" %s, добро пожаловать!\n", update.Message.From.FirstName), tu.Entity("\n"),
+			tu.Entity("💬").CustomEmoji("5884510167986343350"), tu.Entity(" Узнать все команды - /info\n"),
+			tu.Entity("📢").CustomEmoji("5994378304751145264"), tu.Entity(" Сообщить об ошибке - "), tu.Entity("@ThisNameReallyExists").TextLink("http://t.me/ThisNameReallyExists"), tu.Entity("\n"),
+			tu.Entity("⚙").CustomEmoji("5877260593903177342"), tu.Entity(" Настройки уведомлений - /announcement"),
+		).WithReplyMarkup(tu.InlineKeyboard(
+			tu.InlineKeyboardRow(tu.InlineKeyboardButton("Личный кабинет").WithIconCustomEmojiID("5879770735999717115").WithCallbackData("cab").WithStyle("primary")),
+		)))
 		return nil
 	}, th.CommandEqual("start"))
+}
+
+func infoCom(bh *th.BotHandler) {
+	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
+			tu.ID(update.Message.From.ID),
+			tu.Entity("🏷").CustomEmoji("5854776233950188167"), tu.Entity(" Список всех команд:").Bold(), tu.Entity("\n"),
+			tu.Entity("\n"),
+			tu.Entity("🗒").CustomEmoji("5877597667231534929"), tu.Entity(" /schedule - Покажет расписание на сегодня, если уроки ещё идут\n"),
+			tu.Entity("🔄").CustomEmoji("5778202206922608769"), tu.Entity(" /interruption - Отобразит время до урока или перемены\n"),
+			tu.Entity("🏷").CustomEmoji("5987802868734760945"), tu.Entity(" /name - Подскажет имя учителя\n"),
+			tu.Entity("🖋").CustomEmoji("5883997877172179131"), tu.Entity(" /change - Поменяет группу, в которой находишься\n"),
+			tu.Entity("🖼").CustomEmoji("5775949822993371030"), tu.Entity(" /gdz - Сможет отправить гдз по предметам из списка\n"),
+			tu.Entity("📢").CustomEmoji("5771695636411847302"), tu.Entity(" /rep - Сообщить об ошибке\n"),
+		))
+		return nil
+	}, th.CommandEqual("info"))
 }
 func reGroupCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
@@ -364,16 +379,14 @@ func waiterCom(bh *th.BotHandler) {
 }
 func VACUUUUMCLEANEER(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		if update.Message.From.ID != 5613804018 {
+		if update.Message.From.ID != ownerID {
 			return nil
 		}
 		chid := update.Message.GetChat().ChatID()
 		threadID := update.Message.MessageThreadID
 		highest := update.Message.MessageID
 		botID := ctx.Bot().ID()
-		logChat := tu.ID(5613804018)
-
-		fmt.Println("botID =", botID) // сверим на всякий случай
+		logChat := tu.ID(ownerID)
 
 		ctx.Bot().DeleteMessage(ctx, tu.Delete(chid, update.Message.MessageID))
 
