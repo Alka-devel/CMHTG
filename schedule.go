@@ -122,11 +122,9 @@ func (s LessonStatus) Params(t telego.ChatID, day ScheduleDay) *telego.SendMessa
 	var grr Group
 	if gr, ok := Groups.GetGroup(t.ID); ok {
 		grr = gr
-	} else {
-		grr = Empty
 	}
 	for _, e := range day.Entries {
-		if e.Number == s.LessonIndex+1 && e.Group == grr {
+		if e.Number == s.LessonIndex+1 && (e.Group == grr || e.Group == Empty) {
 			subject, room = e.Subject, e.Room
 		}
 	}

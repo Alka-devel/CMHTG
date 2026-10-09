@@ -60,7 +60,9 @@ func callbackHan(bh *th.BotHandler) {
 				_, err := ctx.Bot().SendMessage(ctx, tu.Message(chID, "Расписание на сегодня не найдено."))
 				return err
 			}
-			schImg(ctx, chID, day, false, Empty)
+			var grr = Empty
+			grr, _ = Groups.GetGroup(query.From.ID)
+			schImg(ctx, chID, day, false, grr)
 		case "nothing":
 			deleteQueryMessage(ctx, query)
 		case "it":
