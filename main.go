@@ -355,15 +355,31 @@ func startCom(bh *th.BotHandler) {
 			}
 			return nil
 		}
+		kb := tu.InlineKeyboard(
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("Личный кабинет").
+					WithIconCustomEmojiID("5879770735999717115").
+					WithCallbackData("cab").
+					WithStyle(telego.ButtonStylePrimary),
+			),
+		)
+
+		if dood, ok := Groups.Get(update.Message.From.ID); ok && (update.Message.From.ID == ownerID || dood.Admin){
+			kb.InlineKeyboard = append(kb.InlineKeyboard,
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("Админ панель").
+						WithCallbackData("admin").
+						WithStyle(telego.ButtonStyleDanger),
+				),
+			)
+		}
 		ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 			tu.ID(update.Message.From.ID),
 			tu.Entity("✈️").CustomEmoji("5875465628285931233"), tu.Entityf(" %s, добро пожаловать!\n", update.Message.From.FirstName), tu.Entity("\n"),
 			tu.Entity("💬").CustomEmoji("5884510167986343350"), tu.Entity(" Узнать все команды - /info\n"),
 			tu.Entity("📢").CustomEmoji("5994378304751145264"), tu.Entity(" Сообщить об ошибке - "), tu.Entity("@ThisNameReallyExists").TextLink("http://t.me/ThisNameReallyExists"), tu.Entity("\n"),
 			tu.Entity("⚙").CustomEmoji("5877260593903177342"), tu.Entity(" Настройки уведомлений - /announcement"),
-		).WithReplyMarkup(tu.InlineKeyboard(
-			tu.InlineKeyboardRow(tu.InlineKeyboardButton("Личный кабинет").WithIconCustomEmojiID("5879770735999717115").WithCallbackData("cab").WithStyle("primary")),
-		)))
+		).WithReplyMarkup(kb))
 		return nil
 	}, th.CommandEqual("start"))
 }

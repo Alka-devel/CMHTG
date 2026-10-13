@@ -15,11 +15,11 @@ import (
 
 func deleteQueryMessage(ctx *th.Context, query telego.CallbackQuery) {
 	if err := ctx.Bot().DeleteMessage(ctx, &telego.DeleteMessageParams{
-			ChatID:    query.Message.GetChat().ChatID(),
-			MessageID: query.Message.GetMessageID(),
-		}); err != nil {
-			log.Println("не удалось удалить сообщение:", err)
-		}
+		ChatID:    query.Message.GetChat().ChatID(),
+		MessageID: query.Message.GetMessageID(),
+	}); err != nil {
+		log.Println("не удалось удалить сообщение:", err)
+	}
 }
 
 var groupByCode = map[int]Group{1: SocEco, 2: InfTec}
@@ -44,6 +44,14 @@ func showScheduleImg(ctx *th.Context, query telego.CallbackQuery) bool {
 func callbackHan(bh *th.BotHandler) {
 	bh.HandleCallbackQuery(func(ctx *th.Context, query telego.CallbackQuery) error {
 		chID := query.Message.GetChat().ChatID()
+		switch {
+		case strings.HasPrefix(query.Data, "schedule"):
+			scheduleCallback(ctx, query, strings.TrimPrefix(query.Data, "schedule:"))
+		case strings.HasPrefix(query.Data, "announcement"):
+			announcementCallback(ctx, query, strings.TrimPrefix(query.Data, "announcement:"))
+		case strings.HasPrefix(query.Data, "members"):
+			membersCallback(ctx, query, strings.TrimPrefix(query.Data, "members:"))
+		}
 		if strings.HasPrefix(query.Data, "showScheduleImg") {
 			_ = ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(query.ID))
 			if showScheduleImg(ctx, query) {
@@ -131,10 +139,67 @@ func callbackHan(bh *th.BotHandler) {
 		case "dr:non":
 			Groups.Update(query.From.ID, func(c *Classmate) { c.Announcement = "non" })
 			nextPage(query, ctx)
+		case "admin":
+			adminpanel(query, ctx, 0)
 		}
 		ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(query.ID))
 		return nil
 	}, th.AnyCallbackQueryWithMessage())
+}
+func adminpanel(query telego.CallbackQuery, ctx *th.Context, state int) {
+	parts := []tu.MessageEntityCollection{
+		tu.Entity("😇").CustomEmoji("5199597179311788893"),
+		tu.Entity(" Выберите действие.").Bold(),
+	}
+	var rows [][]telego.InlineKeyboardButton
+	switch state {
+	case 0:
+		parts = parts[:len(parts)-1]
+		parts = append(parts, tu.Entity(" Выберите категорию для управления.").Bold())
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Расписание").WithCallbackData("schedule").WithStyle("success"),     //1
+			tu.InlineKeyboardButton("Оповещения").WithCallbackData("announcement").WithStyle("success"), //2
+			tu.InlineKeyboardButton("Участники").WithCallbackData("members").WithStyle("success")))      //3
+	case 1:
+		parts = append(parts, tu.Entity("\nКатегория: Расписание").Bold())
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Удалить день").WithStyle("danger").WithCallbackData("schedule:del"),
+			tu.InlineKeyboardButton("Изменить").WithStyle("primary").WithCallbackData("schedule:edit"),
+			tu.InlineKeyboardButton("Установить").WithStyle("success").WithCallbackData("schedule:set"),
+		))
+	case 2:
+		parts = append(parts, tu.Entity("\nКатегория: Оповещения").Bold())
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Черновики").WithCallbackData("announcement:drafts"),
+			tu.InlineKeyboardButton("Публикация").WithStyle("primary").WithCallbackData("announcement:publish"),
+			tu.InlineKeyboardButton("Создать").WithStyle("success").WithCallbackData("announcement:make"),
+		))
+	case 3:
+		parts = append(parts, tu.Entity("\nКатегория: Участники").Bold())
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Удалить").WithStyle("danger").WithCallbackData("members:del"),
+			tu.InlineKeyboardButton("Создать принудительно").WithStyle("primary").WithCallbackData("members:make"),
+			tu.InlineKeyboardButton("Редактировать").WithStyle("primary").WithCallbackData("members:edit"),
+		))
+	}
+	if state > 0 {
+		rows = append(rows, tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("admin")))
+	}
+	txt, enty := tu.MessageEntities(parts...)
+	ctx.Bot().EditMessageText(ctx, tu.EditMessageText(
+		query.Message.GetChat().ChatID(),
+		query.Message.GetMessageID(),
+		txt,
+	).WithEntities(enty...).WithReplyMarkup(tu.InlineKeyboard(rows...)))
+}
+func scheduleCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
+
+}
+func announcementCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
+
+}
+func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
+
 }
 func nextPage(query telego.CallbackQuery, ctx *th.Context) {
 	Groups.Update(query.From.ID, func(c *Classmate) { c.SettingsPage += 1 })

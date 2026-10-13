@@ -50,6 +50,7 @@ func runJob(ctx context.Context, bot *telego.Bot, id int64, ids []int64) {
 		}
 	}()
 	j := job{ctx, bot, id}
+	j.adminCheck()
 	j.mainSpecCheck()
 	j.lastRememberCheck()
 	j.selfBirthdayCheck()
@@ -164,7 +165,13 @@ func (j *job) selfBirthdayCheck() {
 	}
 	Groups.MarkSent(j.i, NoticeSelfBD, now)
 }
-
+func (j *job) adminCheck() {
+	if dood, ok := Groups.Get(j.i); ok && dood.Admin {
+		Groups.Update(j.i, func(c *Classmate) {
+			c.Admin = true
+		})
+	}
+}
 func (j *job) lastRememberCheck() {
 	if dood, ok := Groups.Get(j.i); ok && !dood.Configured &&
 		time.Since(Groups.LastSent(j.i, NoticeSetup)) > 6*time.Hour {
