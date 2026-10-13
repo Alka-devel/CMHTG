@@ -159,7 +159,7 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		contentBottom += float64(rowsCount)*(baseRowH+baseRowGap) - baseRowGap
 	}
 	baseImgH := contentBottom + baseFooterGap + 1 /*линия*/ + baseFooterText + baseBottomPad
-	imgH := s(baseImgH) // переводим в реальные px с учётом scale
+	imgH := s(baseImgH)
 
 	dc := gg.NewContext(int(imgW), int(imgH))
 

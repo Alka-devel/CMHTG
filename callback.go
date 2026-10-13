@@ -14,24 +14,12 @@ import (
 )
 
 func deleteQueryMessage(ctx *th.Context, query telego.CallbackQuery) {
-	Groups.Update(query.From.ID, func(c *Classmate) {
-		c.Group = Empty
-		c.Name = query.From.FirstName
-		if cah, erdr := ctx.Bot().GetChat(ctx, &telego.GetChatParams{ChatID: tu.ID(query.From.ID)}); erdr == nil && cah != nil && cah.Birthdate != nil {
-			c.Birthday.Day = cah.Birthdate.Day
-			c.Birthday.Month = cah.Birthdate.Month
-			c.SettingsPage = 0
-			if cah.Birthdate.Year != 0 {
-				c.Birthday.Year = cah.Birthdate.Year
-			}
-		}
-	})
 	if err := ctx.Bot().DeleteMessage(ctx, &telego.DeleteMessageParams{
-		ChatID:    query.Message.GetChat().ChatID(),
-		MessageID: query.Message.GetMessageID(),
-	}); err != nil {
-		log.Println("не удалось удалить сообщение:", err)
-	}
+			ChatID:    query.Message.GetChat().ChatID(),
+			MessageID: query.Message.GetMessageID(),
+		}); err != nil {
+			log.Println("не удалось удалить сообщение:", err)
+		}
 }
 
 var groupByCode = map[int]Group{1: SocEco, 2: InfTec}
@@ -312,7 +300,11 @@ func cab(query telego.CallbackQuery, ctx *th.Context) {
 func tabl(g Group, query telego.CallbackQuery, ctx *th.Context, b bool) {
 	Groups.Update(query.From.ID, func(c *Classmate) {
 		c.Group = g
-		c.Name = query.From.FirstName
+		if c.Name == "" {
+			if n, err := cleanName(query.From.FirstName); err == nil {
+				c.Name = n
+			}
+		}
 		if cah, erdr := ctx.Bot().GetChat(ctx, &telego.GetChatParams{ChatID: tu.ID(query.From.ID)}); erdr == nil && cah != nil && cah.Birthdate != nil {
 			c.Birthday.Day = cah.Birthdate.Day
 			c.Birthday.Month = cah.Birthdate.Month

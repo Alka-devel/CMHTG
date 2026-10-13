@@ -36,6 +36,9 @@ func startScheduler(ctx context.Context, bot *telego.Bot, interval time.Duration
 func runCheck(ctx context.Context, bot *telego.Bot) {
 	ids := Groups.IDs()
 	for _, id := range ids {
+		if id < 0 {
+			continue
+		}
 		runJob(ctx, bot, id, ids)
 	}
 }

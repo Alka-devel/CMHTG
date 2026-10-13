@@ -18,7 +18,6 @@ const (
 	browserUA  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 
-// Cookie jar нужен, чтобы сохранялись __ddg* куки между запросами.
 var reshakClient = func() *http.Client {
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{Jar: jar, Timeout: 20 * time.Second}
@@ -47,11 +46,10 @@ func reshakGet(ctx context.Context, rawURL, accept, referer string) (*http.Respo
 }
 
 type SolutionImage struct {
-	Solution int    // 1 или 2
-	URL      string // полный URL картинки
+	Solution int
+	URL      string
 }
 
-// FetchSolutionImages возвращает URL картинок решений в порядке: №1, его доп., №2, его доп.
 func FetchSolutionImages(ctx context.Context, exercise int) ([]SolutionImage, string, error) {
 	pageURL := fmt.Sprintf("%s/otvet/otvet15.php?otvet=%d", reshakBase, exercise)
 	resp, err := reshakGet(ctx, pageURL, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "")
@@ -80,7 +78,7 @@ func FetchSolutionImages(ctx context.Context, exercise int) ([]SolutionImage, st
 	seen := map[string]bool{}
 	for _, g := range groups {
 		doc.Find(g.selector).Each(func(_ int, s *goquery.Selection) {
-			src, _ := s.Attr("data-src") // lazyload
+			src, _ := s.Attr("data-src")
 			if src == "" {
 				src, _ = s.Attr("src")
 			}
@@ -104,7 +102,6 @@ func FetchSolutionImages(ctx context.Context, exercise int) ([]SolutionImage, st
 		return nil, "", fmt.Errorf("картинки решения не найдены")
 	}
 
-	// Условие задачи (необязательно)
 	task := strings.TrimSpace(doc.Find(".text_zad").First().Text())
 	return out, task, nil
 }
@@ -115,5 +112,5 @@ func DownloadImage(ctx context.Context, imgURL, referer string) ([]byte, error) 
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // максимум 10 МБ
+	return io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 }

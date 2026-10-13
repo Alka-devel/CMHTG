@@ -69,7 +69,7 @@ func fixNames() {
 			}
 			if n, err := cleanName(c.Name); err == nil {
 				c.Name = n
-			} else { // имя негодное: просим пройти настройку заново
+			} else {
 				c.Name, c.Configured, c.SettingsPage = "", false, 0
 			}
 		})

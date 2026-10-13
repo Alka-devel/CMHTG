@@ -68,7 +68,6 @@ func gdzCom(bh *th.BotHandler) {
 		th.TextPrefix("решение"),
 		th.TextPrefix("задание"),
 		th.TextPrefix("ответ"),
-		
 	))
 }
 

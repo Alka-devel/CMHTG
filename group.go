@@ -26,7 +26,7 @@ type Birthday struct {
 
 func (b Birthday) IsSet() bool { return b.Day != 0 && b.Month != 0 }
 func parseBirthday(s string) (Birthday, error) {
-	t, err := time.Parse("02.01.2006", strings.TrimSpace(s))
+	t, err := time.Parse("2.1.2006", strings.TrimSpace(s))
 	if err != nil {
 		return Birthday{}, err
 	}
@@ -74,7 +74,7 @@ type ClassRegistry struct {
 func (c *ClassRegistry) LastSent(id int64, n Notice) time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.Users[id].Sent[n] 
+	return c.Users[id].Sent[n]
 }
 
 func (c *ClassRegistry) MarkSent(id int64, n Notice, t time.Time) error {

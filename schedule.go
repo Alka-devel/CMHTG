@@ -300,7 +300,7 @@ func parseSubjName(str string) (string, Group) {
 }
 
 type WeekSchedule struct {
-	Days map[string]ScheduleDay `json:"days"` // ключ: "2006-01-02"
+	Days map[string]ScheduleDay `json:"days"`
 	mu   sync.Mutex
 }
 
