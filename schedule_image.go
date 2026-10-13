@@ -141,10 +141,10 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		if isLesNeed {
 			rowsCount++
 		}
-		if !isLesNeed && !entry.IsSE && grrNam == 1 {
+		if !isLesNeed && entry.Group != SocEco && grrNam == 1 {
 			rowsCount++
 		}
-		if !isLesNeed && !entry.IsIT && grrNam == 2 {
+		if !isLesNeed && entry.Group != InfTec && grrNam == 2 {
 			rowsCount++
 		}
 	}
@@ -184,10 +184,10 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		if group != Empty {
 			entry.Addi = false
 		}
-		if group == InfTec && entry.IsSE {
+		if group == InfTec && entry.Group == SocEco {
 			continue
 		}
-		if group == SocEco && entry.IsIT {
+		if group == SocEco && entry.Group == InfTec {
 			continue
 		}
 		isCurrent := entry.Number == currentIndex
@@ -223,9 +223,9 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		dc.DrawString(fmt.Sprintf("%d", entry.Number), pad+s(baseRowPadX), cy)
 		right := fmt.Sprintf("каб. %d", entry.Room)
 		groupT := func() string {
-			if entry.IsIT == true {
+			if entry.Group == InfTec {
 				return "И-Т"
-			} else if entry.IsSE == true {
+			} else if entry.Group == SocEco {
 				return "С-Э"
 			}
 			return ""
@@ -259,14 +259,14 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 		}
 		dc.SetColor(textColor)
 		dc.DrawString(right, rightX, cy)
-		if entry.IsIT == true && (!isLesNeed || group == Empty) {
+		if entry.Group == InfTec && (!isLesNeed || group == Empty) {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()
 			dc.SetColor(textColor)
 			dc.DrawString(groupT(), rightTeX+s(baseMiniPad), cy)
 		}
-		if entry.IsSE == true && (!isLesNeed || group == Empty) {
+		if entry.Group == SocEco && (!isLesNeed || group == Empty) {
 			dc.SetColor(colGroupText)
 			dc.DrawRoundedRectangle(rightTeX, y+((rowH-groupTeH)/2-2), groupTeW-s(baseMiniPad), groupTeH+8, groupTeH/2+4)
 			dc.Fill()

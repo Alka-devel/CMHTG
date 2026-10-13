@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Alka-devel/ruwiki-term"
@@ -56,53 +58,83 @@ var (
 	rp           = false
 	emojiEnabled = false
 	botToken     string
+	ownerID      int64
 )
+
+// ───────────── QUIET LOGGER ─────────────
+type quietLogger struct{}
+
+func (quietLogger) Debugf(string, ...any) {}
+func (quietLogger) Errorf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if strings.Contains(msg, "context canceled") {
+		return
+	}
+	log.Println("ERROR", msg)
+}
+
+//───────────── QUIET LOGGER ─────────────
 
 func main() {
 	fmt.Println("Start")
 	flag.BoolVar(&emojiEnabled, "emojiEnabled", emojiEnabled, "Enable emoji handler")
 	flag.BoolVar(&rp, "rp-coms", rp, "Enable RP handler")
-	flag.StringVar(&botToken, "token", "", "Token from BotFather")
+	flag.StringVar(&botToken, "token", botToken, "Token from BotFather")
 	flag.StringVar(&tabPath, "table-path", tabPath, "path to table with data")
 	flag.StringVar(&claPath, "clsmts-table-path", claPath, "path to table with classmates")
+	flag.Int64Var(&ownerID, "owner-tg-id", ownerID, "Telegram ID of owner of bot")
 	flag.Parse()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	browser, brrErr = ruwiki.StartChrome()
 	if brrErr != nil {
 		fmt.Println(brrErr)
+	} else {
+		defer browser.Close()
 	}
-	defer browser.Close()
 
 	Groups, grErr = LoadClassRegistry(claPath)
-	week, weekErr = LoadWeekSchedule(tabPath)
 	if grErr != nil {
 		log.Fatal(grErr)
 	}
+	week, weekErr = LoadWeekSchedule(tabPath)
 	if weekErr != nil {
 		log.Fatal(weekErr)
 	}
 
-	bot, ctx := load()
+	bot := load()
 	updates, _ := bot.UpdatesViaLongPolling(ctx, nil)
 	bh, _ := th.NewBotHandler(bot, updates)
-	defer func() { _ = bh.Stop() }()
 	initComs(bh)
+	startScheduler(ctx, bot, 25*time.Minute)
 	_ = bh.Start()
+	_ = bh.Stop()
+	if err := Groups.Save(claPath); err != nil {
+		log.Println("сохранение реестра:", err)
+	}
+	if err := week.Save(tabPath); err != nil {
+		log.Println("сохранение расписания:", err)
+	}
 }
-func load() (*telego.Bot, context.Context) {
-	ctx := context.Background()
-	bot, err := telego.NewBot(botToken, telego.WithExtendedDefaultLogger(false, true, nil), telego.WithHTTPClient(&http.Client{}))
+
+func load() *telego.Bot {
+	bot, err := telego.NewBot(botToken, telego.WithLogger(quietLogger{}), telego.WithHTTPClient(&http.Client{}))
 	if err != nil {
 		fmt.Println(err)
-		os.Exit(0)
+		os.Exit(1)
 	}
-	return bot, ctx
+	return bot
 }
 func initComs(bh *th.BotHandler) {
 	//============
 	waiterCom(bh)
 	reGroupCom(bh)
 	startCom(bh)
-	anonmsgCom(bh, 138)
+	repCom(bh)
+	infoCom(bh)
+	announcementCom(bh)
 	scheduleCom(bh)
 	callbackHan(bh)
 	fioCom(bh)
@@ -165,7 +197,7 @@ func fioCom(bh *th.BotHandler) {
 		} else {
 			fields = []string{""}
 		}
-		result := "Имя: не найдено"
+		result := "Имя: не найдено\nФормат: /name *предмет*\nПример: имя алгебра"
 	search:
 		for _, e := range teacherLookup {
 			for _, alias := range e.aliases {
@@ -183,20 +215,22 @@ func fioCom(bh *th.BotHandler) {
 		return nil
 	}, th.Or(th.CommandEqual("name"), th.TextPrefix("имя"), th.TextPrefix("Имя"), th.TextPrefix("учитель"), th.TextPrefix("Учитель")))
 }
-func anonmsgCom(bh *th.BotHandler, threadId int) {
+func repCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		if threadId != -1 {
-			parm := &telego.CopyMessageParams{
-				ChatID:          tu.ID(-1004443888902),
-				MessageThreadID: threadId,
-				FromChatID:      update.Message.Chat.ChatID(),
-				MessageID:       update.Message.MessageID,
-			}
-			_, _ = ctx.Bot().CopyMessage(ctx, parm)
-			_, _ = ctx.Bot().SendMessage(ctx, tu.Message(update.Message.Chat.ChatID(), "Скоро.. скоро.."))
+		ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(tu.ID(update.Message.From.ID),
+			tu.Entity("😇").CustomEmoji(""),
+			tu.Entity(" Составьте обращение и отправьте его.\nПример: Здравствуйте! Сегодня резко перестала работать команда перемена").Bold(),
+		))
+		upd, updErr := waiter.WaitForMessage(ctx, tu.ID(update.Message.From.ID))
+		if updErr != nil || upd.Message == nil {
+			return nil
 		}
-		return nil
-	}, th.CommandEqual("anonmsg"))
+		_, er := ctx.Bot().SendMessage(ctx, tu.Messagef(tu.ID(ownerID), "От: %s (@%s)\nЧто: %s", upd.Message.From.FirstName, upd.Message.From.Username, strings.TrimPrefix(strings.TrimPrefix(upd.Message.Text, "/rep"), "ort")))
+		if er == nil {
+			ctx.Bot().SendMessage(ctx, tu.Message(tu.ID(upd.Message.From.ID), "Обращение отправлено!"))
+		}
+		return er
+	}, th.Or(th.CommandEqual("rep"), th.CommandEqual("report")))
 }
 func scheduleCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
@@ -299,47 +333,94 @@ func interCom(bh *th.BotHandler) {
 		return nil
 	}, th.Or(th.CommandEqual("interruption"), th.TextContains("Перемена"), th.TextContains("перемена")))
 }
+
 func startCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
-			tu.ID(update.Message.Chat.ID),
-			fmt.Sprintf("Привет, %s! Если вдруг у тебя появились идеи или хочешь сообщить об ошибке, пиши @ThisNameReallyExists ☺️", update.Message.From.FirstName),
-		).WithReplyMarkup(tu.Keyboard(
-			tu.KeyboardRow(
-				tu.KeyboardButton("Расписание"),
-				tu.KeyboardButton("Перемена"),
-			),
-			tu.KeyboardRow(tu.KeyboardButton("Поменять группу")),
-		).WithResizeKeyboard()))
 		if !Check(update.Message.Chat.ID) {
-			ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
+			_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 				update.Message.Chat.ChatID(),
-				tu.Entity("Также тебе надо сделать выбор в какой ты группе!"),
+				tu.Entity("Выбирай группу!"),
 			).WithReplyMarkup(tu.InlineKeyboard(
 				tu.InlineKeyboardRow(
 					tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
 					tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
 				),
+				tu.InlineKeyboardRow(tu.InlineKeyboardButton("Оставить как есть").WithCallbackData("nothing")),
 			)))
+			if e != nil {
+				fmt.Println(e)
+			}
+			return nil
 		}
+		ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
+			tu.ID(update.Message.From.ID),
+			tu.Entity("✈️").CustomEmoji("5875465628285931233"), tu.Entityf(" %s, добро пожаловать!\n", update.Message.From.FirstName), tu.Entity("\n"),
+			tu.Entity("💬").CustomEmoji("5884510167986343350"), tu.Entity(" Узнать все команды - /info\n"),
+			tu.Entity("📢").CustomEmoji("5994378304751145264"), tu.Entity(" Сообщить об ошибке - "), tu.Entity("@ThisNameReallyExists").TextLink("http://t.me/ThisNameReallyExists"), tu.Entity("\n"),
+			tu.Entity("⚙").CustomEmoji("5877260593903177342"), tu.Entity(" Настройки уведомлений - /announcement"),
+		).WithReplyMarkup(tu.InlineKeyboard(
+			tu.InlineKeyboardRow(tu.InlineKeyboardButton("Личный кабинет").WithIconCustomEmojiID("5879770735999717115").WithCallbackData("cab").WithStyle("primary")),
+		)))
 		return nil
 	}, th.CommandEqual("start"))
+}
+func allComParam() (string, []telego.MessageEntity) {
+	return tu.MessageEntities(
+		tu.Entity("🏷").CustomEmoji("5854776233950188167"), tu.Entity(" Список всех команд:").Bold(), tu.Entity("\n"),
+		tu.Entity("\n"),
+		tu.Entity("🏷").CustomEmoji("5987802868734760945"), tu.Entity(" /info - Отправит эту подсказку\n"),
+		tu.Entity("🗒").CustomEmoji("5877597667231534929"), tu.Entity(" /schedule - Покажет расписание на сегодня, если уроки ещё идут\n"),
+		tu.Entity("🔄").CustomEmoji("5778202206922608769"), tu.Entity(" /interruption - Отобразит время до урока или перемены\n"),
+		tu.Entity("🏷").CustomEmoji("5987802868734760945"), tu.Entity(" /name - Подскажет имя учителя\n"),
+		tu.Entity("🖋").CustomEmoji("5883997877172179131"), tu.Entity(" /change - Поменяет группу, в которой находишься\n"),
+		tu.Entity("🖼").CustomEmoji("5775949822993371030"), tu.Entity(" /gdz - Сможет отправить гдз по предметам из списка\n"),
+		tu.Entity("📢").CustomEmoji("5771695636411847302"), tu.Entity(" /announcement - Покажет настройки всех уведомлений\n"),
+		tu.Entity("📢").CustomEmoji("5771695636411847302"), tu.Entity(" /rep - Сообщить об ошибке\n"),
+	)
+}
+func infoCom(bh *th.BotHandler) {
+	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		txt, entities := allComParam()
+		_, err := ctx.Bot().SendMessage(ctx,
+			tu.Message(
+				tu.ID(update.Message.Chat.ID),
+				txt,
+			).WithEntities(entities...),
+		)
+		return err
+	}, th.CommandEqual("info"))
+}
+func changeKeyb(b bool) *telego.InlineKeyboardMarkup {
+	keyb := tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it:t").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
+			tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se:t").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
+		),
+		tu.InlineKeyboardRow(tu.InlineKeyboardButton("Оставить как есть").WithCallbackData("nothing:t")),
+	)
+	if !b {
+		keyb = tu.InlineKeyboard(
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
+				tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
+			),
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("Назад").WithIconCustomEmojiID("5877629862306385808").WithCallbackData("cab").WithStyle("danger"),
+			),
+		)
+	}
+	return keyb
 }
 func reGroupCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		if update.Message.Chat.Type != "private" {
 			return nil
 		}
+
 		_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 			update.Message.Chat.ChatID(),
 			tu.Entity("Выбирай группу!"),
-		).WithReplyMarkup(tu.InlineKeyboard(
-			tu.InlineKeyboardRow(
-				tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
-				tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
-			),
-			tu.InlineKeyboardRow(tu.InlineKeyboardButton("Оставить как есть").WithCallbackData("nothing")),
-		)))
+		).WithReplyMarkup(changeKeyb(false)))
 		if e != nil {
 			fmt.Println(e)
 		}
@@ -364,16 +445,14 @@ func waiterCom(bh *th.BotHandler) {
 }
 func VACUUUUMCLEANEER(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		if update.Message.From.ID != 5613804018 {
+		if update.Message.From.ID != ownerID {
 			return nil
 		}
 		chid := update.Message.GetChat().ChatID()
 		threadID := update.Message.MessageThreadID
 		highest := update.Message.MessageID
 		botID := ctx.Bot().ID()
-		logChat := tu.ID(5613804018)
-
-		fmt.Println("botID =", botID) // сверим на всякий случай
+		logChat := tu.ID(ownerID)
 
 		ctx.Bot().DeleteMessage(ctx, tu.Delete(chid, update.Message.MessageID))
 
@@ -416,6 +495,56 @@ func VACUUUUMCLEANEER(bh *th.BotHandler) {
 		th.CommandEqual("clean"),
 		th.TextEqualFold("очистка"),
 	))
+}
+func onOff(b bool) string {
+	if b {
+		return "✅ Включены"
+	}
+	return "❌ Выключены"
+}
+
+func announcementCom(bh *th.BotHandler) {
+	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		if update.Message.Chat.Type != "private" {
+			return nil
+		}
+		chID := update.Message.Chat.ChatID()
+		c, ok := Groups.Get(update.Message.From.ID)
+		if !ok {
+			_, err := ctx.Bot().SendMessage(ctx, tu.Message(chID, "Сначала отправь /start"))
+			return err
+		}
+		ownBd := c.Announcement == "all" || c.Announcement == "self"
+		otherBd := c.Announcement == "all" || c.Announcement == "other"
+
+		parts := []tu.MessageEntityCollection{
+			tu.Entity("🔔").CustomEmoji("5890997763331591703"), tu.Entity(" Твои уведомления").Bold(), tu.Entity("\n\n"),
+
+			tu.Entity("💬").CustomEmoji("5891243564309942507"), tu.Entity(" Дни рождения\n").Bold(),
+			tu.Entity("   Твой: "), tu.Entity(onOff(ownBd)), tu.Entity("\n"),
+			tu.Entity("   Одноклассников: "), tu.Entity(onOff(otherBd)), tu.Entity("\n"),
+
+			tu.Entity("💬").CustomEmoji("5931614414351372818"), tu.Entity(" Нововведения в боте: ").Bold(), tu.Entity(onOff(c.Innovations)), tu.Entity("\n"),
+			tu.Entity("💬").CustomEmoji("5891243564309942507"), tu.Entity(" Дни дежурства: ").Bold(), tu.Entity(onOff(c.Duty)),
+		}
+		if !c.Configured {
+			parts = append(parts, tu.Entity("\n\n"),
+				tu.Entity("⚙").CustomEmoji("5877260593903177342"),
+				tu.Entity(" Быстрая настройка ещё не пройдена — нажми «Настроить»").Italic(),
+			)
+		}
+
+		txt, entities := tu.MessageEntities(parts...)
+		_, err := ctx.Bot().SendMessage(ctx, tu.Message(chID, txt).
+			WithEntities(entities...).
+			WithReplyMarkup(tu.InlineKeyboard(
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("Настроить").WithIconCustomEmojiID("5877260593903177342").WithCallbackData("settings").WithStyle("success"),
+					tu.InlineKeyboardButton("Личный кабинет").WithIconCustomEmojiID("5879770735999717115").WithCallbackData("cab").WithStyle("primary"),
+				),
+			)))
+		return err
+	}, th.CommandEqual("announcement"))
 }
 func termCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
