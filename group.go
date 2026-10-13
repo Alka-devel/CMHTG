@@ -35,6 +35,14 @@ func parseBirthday(s string) (Birthday, error) {
 	}
 	return Birthday{Day: t.Day(), Month: int(t.Month()), Year: t.Year()}, nil
 }
+func (b Birthday) IsToday() bool {
+	n := time.Now()
+	return b.IsSet() && b.Day == n.Day() && b.Month == int(n.Month())
+}
+func (b Birthday) IsIn(days int) bool {
+	d := time.Now().AddDate(0, 0, days)
+	return b.IsSet() && b.Day == d.Day() && b.Month == int(d.Month())
+}
 
 type Classmate struct {
 	Group        Group     `json:"group"`

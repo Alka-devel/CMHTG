@@ -17,7 +17,7 @@ func deleteQueryMessage(ctx *th.Context, query telego.CallbackQuery) {
 	Groups.Update(query.From.ID, func(c *Classmate) {
 		c.Group = Empty
 		c.Name = query.From.FirstName
-		if cah, erdr := ctx.Bot().GetChat(ctx, &telego.GetChatParams{ChatID: tu.ID(query.From.ID)}); erdr != nil && cah.Birthdate.Day != 0 {
+		if cah, erdr := ctx.Bot().GetChat(ctx, &telego.GetChatParams{ChatID: tu.ID(query.From.ID)}); erdr == nil && cah != nil && cah.Birthdate != nil {
 			c.Birthday.Day = cah.Birthdate.Day
 			c.Birthday.Month = cah.Birthdate.Month
 			c.SettingsPage = 0
@@ -223,7 +223,13 @@ func seti(query telego.CallbackQuery, ctx *th.Context, dood Classmate) {
 		parts = nil
 		parts = append(parts, tu.Entity("💬").CustomEmoji("5951665890079544884"),
 			tu.Entity(" Спасибо за настройку!").Bold())
-		Groups.Update(query.From.ID, func(c *Classmate) { c.Configured = true; c.SettingsPage = 0 })
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Назад в личный кабинет").WithCallbackData("cab").WithStyle("danger").WithIconCustomEmojiID("5877629862306385808")))
+		Groups.Update(query.From.ID, func(c *Classmate) {
+			c.Configured = true
+			c.SettingsPage = 0
+			c.Notify = c.Announcement == "all" && c.Duty && c.Innovations
+		})
 	}
 	txt, enty := tu.MessageEntities(parts...)
 	var ed = tu.EditMessageText(query.Message.GetChat().ChatID(), query.Message.GetMessageID(), txt).WithEntities(enty...)
