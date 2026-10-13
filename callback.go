@@ -75,6 +75,10 @@ func callbackHan(bh *th.BotHandler) {
 			schImg(ctx, chID, day, false, grr)
 		case "nothing":
 			deleteQueryMessage(ctx, query)
+		case "empty":
+			tabl(Empty, query, ctx, false)
+		case "empty:t":
+			tabl(Empty, query, ctx, true)
 		case "it":
 			tabl(InfTec, query, ctx, false)
 		case "se":
@@ -107,6 +111,11 @@ func callbackHan(bh *th.BotHandler) {
 		case "change":
 			change(query, ctx)
 		case "right_name":
+			Groups.Update(query.From.ID, func(c *Classmate) {
+				if n, err := cleanName(c.Name); err == nil {
+					c.Name = n
+				}
+			})
 			nextPage(query, ctx)
 		case "wrong_name":
 			wrName(query, ctx)
@@ -148,19 +157,27 @@ func nextPage(query telego.CallbackQuery, ctx *th.Context) {
 	seti(query, ctx, dood)
 }
 func wrName(query telego.CallbackQuery, ctx *th.Context) {
-	ctx.Bot().DeleteMessage(ctx, tu.Delete(tu.ID(query.From.ID), query.Message.GetMessageID()))
-	ctx.Bot().SendMessage(ctx, tu.Message(tu.ID(query.From.ID), "<b>Понял! Жду твоё настоящее имя!</b>").WithParseMode("html"))
+	chat := tu.ID(query.From.ID)
+	ctx.Bot().DeleteMessage(ctx, tu.Delete(chat, query.Message.GetMessageID()))
+	ctx.Bot().SendMessage(ctx, tu.Message(chat, "<b>Понял! Жду твоё настоящее имя!</b>").WithParseMode("html"))
 
-	upd, uErr := waiter.WaitForMessage(ctx, tu.ID(query.From.ID))
-	if uErr != nil || upd.Message == nil {
+	for attempt := 0; attempt < 3; attempt++ {
+		upd, err := waiter.WaitForMessage(ctx, chat)
+		if err != nil || upd.Message == nil {
+			return
+		}
+		name, nerr := cleanName(upd.Message.Text)
+		if nerr != nil {
+			ctx.Bot().SendMessage(ctx, tu.Message(chat, "Не подходит: "+nerr.Error()+"\nНапиши настоящее имя ещё раз."))
+			continue
+		}
+		Groups.Update(query.From.ID, func(c *Classmate) { c.Name = name })
+		if dood, ok := Groups.Get(query.From.ID); ok {
+			seti(query, ctx, dood)
+		}
 		return
 	}
-	Groups.Update(query.From.ID, func(c *Classmate) { c.Name = strings.TrimSpace(upd.Message.Text) })
-	dood, ok := Groups.Get(query.From.ID)
-	if !ok {
-		return
-	}
-	seti(query, ctx, dood)
+	ctx.Bot().SendMessage(ctx, tu.Message(chat, "Не получилось. Нажми «Настройки» в личном кабинете и попробуй снова."))
 }
 func seti(query telego.CallbackQuery, ctx *th.Context, dood Classmate) {
 	num := dood.SettingsPage
@@ -181,6 +198,10 @@ func seti(query telego.CallbackQuery, ctx *th.Context, dood Classmate) {
 	}
 	switch num {
 	case 0:
+		if _, err := cleanName(dood.Name); err != nil {
+			wrName(query, ctx)
+			return
+		}
 		parts = append(parts, tu.Entity("💬").CustomEmoji("5936017305585586269"),
 			tu.Entityf(" Твоё настоящее имя - %s?", dood.Name).Bold())
 		rows = append(rows, tu.InlineKeyboardRow(
@@ -292,7 +313,7 @@ func tabl(g Group, query telego.CallbackQuery, ctx *th.Context, b bool) {
 	Groups.Update(query.From.ID, func(c *Classmate) {
 		c.Group = g
 		c.Name = query.From.FirstName
-		if cah, erdr := ctx.Bot().GetChat(ctx, &telego.GetChatParams{ChatID: tu.ID(query.From.ID)}); erdr != nil && cah.Birthdate.Day != 0 {
+		if cah, erdr := ctx.Bot().GetChat(ctx, &telego.GetChatParams{ChatID: tu.ID(query.From.ID)}); erdr == nil && cah != nil && cah.Birthdate != nil {
 			c.Birthday.Day = cah.Birthdate.Day
 			c.Birthday.Month = cah.Birthdate.Month
 			c.SettingsPage = 0

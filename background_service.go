@@ -20,6 +20,7 @@ func startScheduler(ctx context.Context, bot *telego.Bot, interval time.Duration
 	go func() {
 		t := time.NewTicker(interval)
 		defer t.Stop()
+		fixNames()
 		runCheck(ctx, bot)
 		for {
 			select {
@@ -33,46 +34,137 @@ func startScheduler(ctx context.Context, bot *telego.Bot, interval time.Duration
 }
 
 func runCheck(ctx context.Context, bot *telego.Bot) {
+	ids := Groups.IDs()
+	for _, id := range ids {
+		runJob(ctx, bot, id, ids)
+	}
+}
+
+func runJob(ctx context.Context, bot *telego.Bot, id int64, ids []int64) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("scheduler panic:", r)
+			log.Println("scheduler panic:", id, r)
 		}
 	}()
-	lstCls := Groups.IDs()
-	for _, i := range lstCls {
-		j := job{ctx, bot, i}
-		j.lastRememberCheck()
-		j.selfBirthdayCheck()
-		j.otherBithdayCheck(lstCls)
-	}
+	j := job{ctx, bot, id}
+	j.mainSpecCheck()
+	j.lastRememberCheck()
+	j.selfBirthdayCheck()
+	j.otherBithdayCheck(ids)
 }
-func (j *job) otherBithdayCheck(l []int64) {
-	return
-	var birth_id int64
-	_ = birth_id
-	for _, i := range l {
-		_ = i
-	}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }
-func (j *job) selfBirthdayCheck() (int64, bool) {
-	if dood, ok := Groups.Get(j.i); ok && (dood.Announcement == "all" || dood.Announcement == "self") && dood.Birthday.IsToday() && time.Now().Hour() > 10 && dood.LastRemember.Format("2006-01-02") != time.Now().Format("2006-01-02") {
-		_, er := j.bot.SendMessage(j.ctx, tu.MessageWithEntities(
-			tu.ID(j.i),
-			tu.Entity("😇").CustomEmoji("5906995262378741881"),
-			tu.Entityf(" Привет, %s, тебе сегодня исполнилось %d лет!\nХоть я и бездушная машина, но всё равно хочу, чтобы у тебя в жизни было много приключений, счастья и смешных моментов!",
-				dood.Name, time.Now().Year()-dood.Birthday.Year).Bold(),
-			tu.Entity("\nС днём рождения!").Bold(),
-			tu.Entity("😇").CustomEmoji("5465263910414195580"),
-		))
-		if er != nil {
-			fmt.Println("birth err: ", er)
+
+func yearsWord(n int) string {
+	if n%100 >= 11 && n%100 <= 14 {
+		return "лет"
+	}
+	switch n % 10 {
+	case 1:
+		return "год"
+	case 2, 3, 4:
+		return "года"
+	}
+	return "лет"
+}
+
+func whoLabel(c Classmate) string {
+	name := c.Name
+	if name == "" {
+		name = "без имени"
+	}
+	if c.TelegName != "" {
+		return name + ", " + c.TelegName
+	}
+	return name
+}
+
+func (j *job) mainSpecCheck() {
+	dood, ok := Groups.Get(j.i)
+	if !ok {
+		return
+	}
+	hch, err := j.bot.GetChat(j.ctx, &telego.GetChatParams{ChatID: tu.ID(j.i)})
+	if err != nil {
+		return
+	}
+	uname := ""
+	if hch.Username != "" {
+		uname = "@" + hch.Username
+	}
+	if uname == dood.TelegName {
+		return
+	}
+	Groups.Update(j.i, func(c *Classmate) { c.TelegName = uname })
+}
+
+func (j *job) otherBithdayCheck(ids []int64) {
+	me, ok := Groups.Get(j.i)
+	now := time.Now()
+	if !ok || !(me.Announcement == "all" || me.Announcement == "other") ||
+		now.Hour() <= 10 || sameDay(Groups.LastSent(j.i, NoticeOtherBD), now) {
+		return
+	}
+	sent := 0
+	for _, id := range ids {
+		if id == j.i {
+			continue
 		}
-		return j.i, true
+		ch, ok := Groups.Get(id)
+		if !ok || !ch.Birthday.IsIn(1) {
+			continue
+		}
+		_, err := j.bot.SendMessage(j.ctx, tu.MessageWithEntities(tu.ID(j.i),
+			tu.Entity("😇").CustomEmoji("5906995262378741881"),
+			tu.Entityf(" У твоего одноклассника (%s) завтра день рождения, не забудь поздравить его! ", whoLabel(ch)).Bold(),
+			tu.Entity("😇").CustomEmoji("5339255565723903023"),
+		))
+		if err != nil {
+			log.Println("other birthday:", err)
+			continue
+		}
+		sent++
 	}
-	return j.i, false
+	if sent > 0 {
+		Groups.MarkSent(j.i, NoticeOtherBD, now)
+	}
 }
+
+func (j *job) selfBirthdayCheck() {
+	dood, ok := Groups.Get(j.i)
+	now := time.Now()
+	if !ok || !(dood.Announcement == "all" || dood.Announcement == "self") ||
+		!dood.Birthday.IsToday() || now.Hour() <= 10 ||
+		sameDay(Groups.LastSent(j.i, NoticeSelfBD), now) {
+		return
+	}
+	age := ""
+	if dood.Birthday.Year != 0 {
+		n := now.Year() - dood.Birthday.Year
+		age = fmt.Sprintf(", тебе сегодня исполнилось %d %s", n, yearsWord(n))
+	}
+	_, err := j.bot.SendMessage(j.ctx, tu.MessageWithEntities(
+		tu.ID(j.i),
+		tu.Entity("😇").CustomEmoji("5906995262378741881"),
+		tu.Entityf(" Привет, %s%s!\nХоть я и бездушная машина, но всё равно хочу, чтобы у тебя в жизни было много приключений, счастья и смешных моментов!",
+			dood.Name, age).Bold(),
+		tu.Entity("\nС днём рождения!").Bold(),
+		tu.Entity("😇").CustomEmoji("5465263910414195580"),
+	))
+	if err != nil {
+		log.Println("birth err:", err)
+		return
+	}
+	Groups.MarkSent(j.i, NoticeSelfBD, now)
+}
+
 func (j *job) lastRememberCheck() {
-	if dood, ok := Groups.Get(j.i); ok && !dood.Configured && time.Since(dood.LastRemember) > 6*time.Hour {
+	if dood, ok := Groups.Get(j.i); ok && !dood.Configured &&
+		time.Since(Groups.LastSent(j.i, NoticeSetup)) > 6*time.Hour {
 		_, er := j.bot.SendMessage(j.ctx, tu.MessageWithEntities(
 			tu.ID(j.i),
 			tu.Entity("😇").CustomEmoji("5875465628285931233"),
@@ -83,14 +175,6 @@ func (j *job) lastRememberCheck() {
 		if er != nil {
 			return
 		}
-		Groups.Update(j.i, func(u *Classmate) {
-			u.LastRemember = time.Now()
-			// us, usErr := bot.GetChat(ctx, &telego.GetChatParams{
-			// 	ChatID: tu.ID(i),
-			// })
-			// if usErr != nil || us.Type != "private" ||us.IsForum {
-			// 	return
-			// }
-		})
+		Groups.MarkSent(j.i, NoticeSetup, time.Now())
 	}
 }

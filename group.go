@@ -44,17 +44,26 @@ func (b Birthday) IsIn(days int) bool {
 	return b.IsSet() && b.Day == d.Day() && b.Month == int(d.Month())
 }
 
+type Notice string
+
+const (
+	NoticeSelfBD  Notice = "self_bd"
+	NoticeOtherBD Notice = "other_bd"
+	NoticeSetup   Notice = "setup"
+)
+
 type Classmate struct {
-	Group        Group     `json:"group"`
-	Name         string    `json:"name,omitempty"`
-	Notify       bool      `json:"notify,omitempty"`
-	Announcement string    `json:"announcement,omitempty"`
-	Innovations  bool      `json:"innovations,omitempty"`
-	Duty         bool      `json:"duty,omitempty"`
-	LastRemember time.Time `json:"last_remember,omitzero"`
-	Birthday     Birthday  `json:"birthday,omitzero"`
-	SettingsPage int8      `json:"settings_page,omitzero"`
-	Configured   bool      `json:"configured,omitempty"`
+	Group        Group                `json:"group"`
+	Name         string               `json:"name,omitempty"`
+	SettingsPage int8                 `json:"settings_page,omitzero"`
+	TelegName    string               `json:"telegname,omitempty"`
+	Notify       bool                 `json:"notify,omitempty"`
+	Announcement string               `json:"announcement,omitempty"`
+	Innovations  bool                 `json:"innovations,omitempty"`
+	Duty         bool                 `json:"duty,omitempty"`
+	Birthday     Birthday             `json:"birthday,omitzero"`
+	Sent         map[Notice]time.Time `json:"sent,omitempty"`
+	Configured   bool                 `json:"configured,omitempty"`
 }
 
 type ClassRegistry struct {
@@ -62,6 +71,20 @@ type ClassRegistry struct {
 	mu    sync.Mutex
 }
 
+func (c *ClassRegistry) LastSent(id int64, n Notice) time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.Users[id].Sent[n] 
+}
+
+func (c *ClassRegistry) MarkSent(id int64, n Notice, t time.Time) error {
+	return c.Update(id, func(u *Classmate) {
+		if u.Sent == nil {
+			u.Sent = make(map[Notice]time.Time)
+		}
+		u.Sent[n] = t
+	})
+}
 func (c *Classmate) UnmarshalJSON(b []byte) error {
 	var g Group
 	if err := json.Unmarshal(b, &g); err == nil {

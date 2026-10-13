@@ -336,6 +336,9 @@ func interCom(bh *th.BotHandler) {
 
 func startCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
+		if update.Message.Chat.Type != "private" {
+			return nil
+		}
 		if !Check(update.Message.Chat.ID) {
 			_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
 				update.Message.Chat.ChatID(),
