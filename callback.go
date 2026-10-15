@@ -263,14 +263,14 @@ func seti(query telego.CallbackQuery, ctx *th.Context, dood Classmate) {
 		))
 	case 1:
 		parts = append(parts, tu.Entity("💬").CustomEmoji("5891243564309942507"),
-			tu.Entity(" Получать уведомления о дне рождения одноклассника и своём?").Bold())
+			tu.Entity(" Выбери о чьих днях рождения тебе придёт оповещение?").Bold())
 		rows = append(rows,
 			tu.InlineKeyboardRow(
-				tu.InlineKeyboardButton("Получать всё").WithCallbackData("dr").WithStyle("success"),
+				tu.InlineKeyboardButton("Получать все").WithCallbackData("dr").WithStyle("success"),
 			),
 			tu.InlineKeyboardRow(
-				tu.InlineKeyboardButton("Только о своём").WithCallbackData("dr:self").WithStyle("primary"),
-				tu.InlineKeyboardButton("Только о одноклассника").WithCallbackData("dr:other").WithStyle("primary"),
+				tu.InlineKeyboardButton("Своё").WithCallbackData("dr:self").WithStyle("primary"),
+				tu.InlineKeyboardButton("Одноклассников").WithCallbackData("dr:other").WithStyle("primary"),
 			),
 			tu.InlineKeyboardRow(
 				tu.InlineKeyboardButton("Ничего не получать").WithCallbackData("dr:non").WithStyle("danger"),

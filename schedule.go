@@ -196,8 +196,10 @@ func timeOfDay(t time.Time) time.Duration {
 }
 
 func scheduleFor(t time.Time) []Period {
-	if t.Weekday() == time.Monday {
-		return mondaySchedule
+	if t.Weekday() == time.Monday || t.Weekday() == time.Friday {
+		return mondayNfridaySchedule
+	} else if t.Weekday() == time.Thursday {
+		return thursdaySchedule
 	}
 	return weekSchedule
 }
