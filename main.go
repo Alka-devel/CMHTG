@@ -236,78 +236,87 @@ func scheduleCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
 		args := ":empty"
 		if update.Message.Chat.Type == "private" {
-			if !Check(update.Message.Chat.ID) {
-				_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
-					update.Message.Chat.ChatID(),
-					tu.Entity("Выбирай группу!"),
-				).WithReplyMarkup(tu.InlineKeyboard(
-					tu.InlineKeyboardRow(
-						tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
-						tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
-					),
-					tu.InlineKeyboardRow(tu.InlineKeyboardButton("Оставить как есть").WithCallbackData("nothing")),
-				)))
-				if e != nil {
-					fmt.Println(e)
-				}
-				return nil
-			}
+			checkAndSuggest(ctx, update)
 			g, _ := Groups.GetGroup(update.Message.From.ID)
 			args = fmt.Sprintf(":%d", g)
 		}
-		forceSch := func() error {
-			f := false
-			nDay := 0
-			now := time.Now()
-			for i := now; !f && nDay < 14; i = i.Add(24 * time.Hour) {
-				day, ok := week.GetDay(i)
-				if !ok {
-					nDay++
-					continue
-				}
-				if nDay == 0 && dayFinished(day, now) {
-					nDay++
-					continue
-				}
-				f = true
-				g, _ := Groups.GetGroup(update.Message.From.ID)
-				schImg(ctx, update.Message.GetChat().ChatID(), day, f, g)
-				return nil
-			}
-			if !f {
-				_, _ = ctx.Bot().SendMessage(ctx, tu.Message(tu.ID(update.Message.Chat.ID), "Ближайшее расписание не найдено"))
-				return nil
-			}
-			return nil
-		}
-
-		if strings.Contains(update.Message.Text, "да") {
-			return forceSch()
-		}
-		sp := strings.TrimPrefix(strings.ToLower(update.Message.Text), "/schedule")
-		sp = strings.TrimPrefix(sp, "расписание")
+		cmd := update.Message.Text
+		cmd = strings.ToLower(cmd)
+		cmd = strings.TrimPrefix(cmd, "/schedule")
+		cmd = strings.TrimPrefix(cmd, "расписание")
+		cmd = strings.TrimSpace(cmd)
 
 		btn1 := tu.InlineKeyboardButton("Да").WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
 		btn2 := tu.InlineKeyboardButton("Нет").WithIconCustomEmojiID("5217944373362174845").WithStyle("Danger").WithCallbackData("nothing")
-
-		if sp != "" {
-			switch {
-			case strings.Contains(sp, "ближайшее"):
-				return forceSch()
-			default:
-				_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
-					tu.ID(update.Message.Chat.ID),
-					fmt.Sprintf("%s, показать расписание?", update.Message.From.FirstName),
-				).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(btn1.WithCallbackData(fmt.Sprintf("showScheduleImg:%s:t%s", strings.TrimSpace(sp), args)), btn2))))
+		scheduleInDays := func(i int) error {
+			if day, ok := week.GetDay(time.Now().AddDate(0, 0, i)); ok {
+				g, _ := Groups.GetGroup(update.Message.From.ID)
+				schImg(ctx, update.Message.GetChat().ChatID(), day, true, g)
+			} else {
+				ctx.Bot().SendMessage(ctx, tu.Message(update.Message.Chat.ChatID(), "Расписание на этот день не выставляли"))
+			}
+			return nil
+		}
+		if cmd == "да" || cmd == "ближайшее" {
+			now := time.Now()
+			for nDay, i := 0, now; nDay < 14; i = i.Add(24 * time.Hour) {
+				day, ok := week.GetDay(i)
+				if !ok || (nDay == 0 && dayFinished(day, now)) {
+					nDay++
+					continue
+				}
+				g, _ := Groups.GetGroup(update.Message.From.ID)
+				schImg(ctx, update.Message.GetChat().ChatID(), day, true, g)
 				return nil
 			}
+			_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
+				tu.ID(update.Message.Chat.ID),
+				"Ближайшее расписание не найдено",
+			))
+			return nil
+		} else if cmd == "послезавтра" {
+			return scheduleInDays(2)
+		} else if cmd == "завтра" {
+			return scheduleInDays(1)
+		} else if cmd == "сегодня" {
+			return scheduleInDays(0)
+		} else if cmd == "вчера" {
+			return scheduleInDays(-1)
+		} else if cmd == "позавчера" {
+			return scheduleInDays(-2)
+		} else if cmd != "" {
+			ctx.Bot().SendMessage(ctx, tu.Message(
+				tu.ID(update.Message.Chat.ID),
+				fmt.Sprintf("%s, показать расписание?", update.Message.From.FirstName),
+			).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(btn1.WithCallbackData(fmt.Sprintf("showScheduleImg:%s:t%s", cmd, args)), btn2))))
+			return nil
+
 		}
-		_, _ = ctx.Bot().SendMessage(ctx, tu.Message(
+		ctx.Bot().SendMessage(ctx, tu.Message(
 			tu.ID(update.Message.Chat.ID),
 			fmt.Sprintf("%s, показать расписание?", update.Message.From.FirstName),
 		).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(btn1.WithCallbackData("showSchedule"), btn2))))
 		return nil
 	}, th.Or(th.CommandEqual("schedule"), th.TextPrefix("Расписание"), th.TextPrefix("расписание")))
+}
+func checkAndSuggest(ctx *th.Context, update telego.Update) error {
+	if !Check(update.Message.Chat.ID) {
+		_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
+			update.Message.Chat.ChatID(),
+			tu.Entity("Выбирай группу!"),
+		).WithReplyMarkup(tu.InlineKeyboard(
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
+				tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
+			),
+			tu.InlineKeyboardRow(tu.InlineKeyboardButton("Оставить как есть").WithCallbackData("nothing")),
+		)))
+		if e != nil {
+			fmt.Println(e)
+		}
+		return nil
+	}
+	return nil
 }
 func getEmojiID(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, message telego.Update) error {
@@ -339,22 +348,7 @@ func startCom(bh *th.BotHandler) {
 		if update.Message.Chat.Type != "private" {
 			return nil
 		}
-		if !Check(update.Message.Chat.ID) {
-			_, e := ctx.Bot().SendMessage(ctx, tu.MessageWithEntities(
-				update.Message.Chat.ChatID(),
-				tu.Entity("Выбирай группу!"),
-			).WithReplyMarkup(tu.InlineKeyboard(
-				tu.InlineKeyboardRow(
-					tu.InlineKeyboardButton("Я в ИТ!").WithCallbackData("it").WithIconCustomEmojiID("5312259896677259918").WithStyle(telego.ButtonStyleSuccess),
-					tu.InlineKeyboardButton("Я в СЭ!").WithCallbackData("se").WithIconCustomEmojiID("5204280252737537692").WithStyle(telego.ButtonStylePrimary),
-				),
-				tu.InlineKeyboardRow(tu.InlineKeyboardButton("Оставить как есть").WithCallbackData("nothing")),
-			)))
-			if e != nil {
-				fmt.Println(e)
-			}
-			return nil
-		}
+		checkAndSuggest(ctx, update)
 		kb := tu.InlineKeyboard(
 			tu.InlineKeyboardRow(
 				tu.InlineKeyboardButton("Личный кабинет").
@@ -364,7 +358,7 @@ func startCom(bh *th.BotHandler) {
 			),
 		)
 
-		if dood, ok := Groups.Get(update.Message.From.ID); ok && (update.Message.From.ID == ownerID || dood.Admin){
+		if dood, ok := Groups.Get(update.Message.From.ID); ok && (update.Message.From.ID == ownerID || dood.Admin) {
 			kb.InlineKeyboard = append(kb.InlineKeyboard,
 				tu.InlineKeyboardRow(
 					tu.InlineKeyboardButton("Админ панель").

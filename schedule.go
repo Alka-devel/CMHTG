@@ -219,7 +219,7 @@ type ScheduleDay struct {
 	Entries []LessonEntry
 }
 
-const dateLayout = "02.01.06"
+const dateLayout = "2.1.06"
 
 func ParseSchedule(r io.Reader) (ScheduleDay, error) {
 	var day ScheduleDay

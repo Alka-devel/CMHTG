@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -46,11 +47,11 @@ func callbackHan(bh *th.BotHandler) {
 		chID := query.Message.GetChat().ChatID()
 		switch {
 		case strings.HasPrefix(query.Data, "schedule"):
-			scheduleCallback(ctx, query, strings.TrimPrefix(query.Data, "schedule:"))
+			scheduleCallback(ctx, query, strings.TrimPrefix(query.Data, "schedule"))
 		case strings.HasPrefix(query.Data, "announcement"):
-			announcementCallback(ctx, query, strings.TrimPrefix(query.Data, "announcement:"))
+			announcementCallback(ctx, query, strings.TrimPrefix(query.Data, "announcement"))
 		case strings.HasPrefix(query.Data, "members"):
-			membersCallback(ctx, query, strings.TrimPrefix(query.Data, "members:"))
+			membersCallback(ctx, query, strings.TrimPrefix(query.Data, "members"))
 		}
 		if strings.HasPrefix(query.Data, "showScheduleImg") {
 			_ = ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(query.ID))
@@ -193,13 +194,86 @@ func adminpanel(query telego.CallbackQuery, ctx *th.Context, state int) {
 	).WithEntities(enty...).WithReplyMarkup(tu.InlineKeyboard(rows...)))
 }
 func scheduleCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
+	if s == "" {
+		adminpanel(query, ctx, 1)
+		return
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) > 0 {
+		parts = slices.Delete(parts, 0, 1)
+	}
+	switch parts[0] {
+	case "del":
+		delDayInDays := func(txt string) {
+			dat, er := time.Parse(dateLayout, txt)
+			delErr := week.DeleteDay(dat)
+			if delErr != nil || er != nil {
+				ctx.Bot().SendMessage(ctx, tu.Messagef(query.Message.GetChat().ChatID(), "Ошибка: %s", delErr))
+				ctx.Bot().EditMessageText(ctx, tu.EditMessageText(query.Message.GetChat().ChatID(), query.Message.GetMessageID(), "Произошла ошибка.").WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("admin").WithStyle("danger")))))
+				return
+			}
+			ctx.Bot().SendMessage(ctx, tu.Message(query.Message.GetChat().ChatID(), "День удалён из расписания."))
+		}
+		ctx.Bot().EditMessageText(ctx,
+			tu.EditMessageText(query.Message.GetChat().ChatID(),
+				query.Message.GetMessageID(),
+				`<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> Напиши дату дня, которого хочешь удалить или выбери из списка</b>`).
+				WithParseMode(telego.ModeHTML).
+				WithReplyMarkup(tu.InlineKeyboard(
+					tu.InlineKeyboardRow(
+						tu.InlineKeyboardButton("Вчерашний").WithCallbackData("schedule:del:yesterday").WithStyle("primary"),
+						tu.InlineKeyboardButton("Сегодняшний").WithCallbackData("schedule:del:today").WithStyle("danger"),
+						tu.InlineKeyboardButton("Завтрашний").WithCallbackData("schedule:del:tomorrow").WithStyle("primary"),
+					),
+					tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("admin").WithStyle("success")),
+				)))
+		if len(parts) > 1 && parts[1] != "" {
+			switch parts[1] {
+			case "yesterday":
+				delDayInDays(time.Now().AddDate(0, 0, -1).Format(dateLayout))
+				return
+			case "today":
+				delDayInDays(time.Now().Format(dateLayout))
+				return
+			case "tomorrow":
+				delDayInDays(time.Now().AddDate(0, 0, 1).Format(dateLayout))
+				return
+			}
+		}
+		if upd, err := waiter.WaitForMessage(ctx, query.Message.GetChat().ChatID()); err == nil && upd.Message != nil {
+			delDayInDays(upd.Message.Text)
+			return
+		}
+	case "edit":
+	/*
+	* СДЕЛАТЬ!!
+	*
+	*
+	*
+	*
+	 */
+	case "set":
+	/*
+	* СДЕЛАТЬ!!
+	*
+	*
+	*
+	*
+	 */
+	}
 
 }
 func announcementCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
-
+	if s == "" {
+		adminpanel(query, ctx, 2)
+		return
+	}
 }
 func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
-
+	if s == "" {
+		adminpanel(query, ctx, 3)
+		return
+	}
 }
 func nextPage(query telego.CallbackQuery, ctx *th.Context) {
 	Groups.Update(query.From.ID, func(c *Classmate) { c.SettingsPage += 1 })
