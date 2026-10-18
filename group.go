@@ -155,7 +155,15 @@ func (c *ClassRegistry) IDs() []int64 {
 	}
 	return ids
 }
-
+func (c *ClassRegistry) Delete(id int64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.Users[id]; !ok {
+		return fmt.Errorf("пользователь %d не найден", id)
+	}
+	delete(c.Users, id)
+	return c.saveLocked(claPath)
+}
 func LoadClassRegistry(path string) (*ClassRegistry, error) {
 	c := &ClassRegistry{Users: make(map[int64]Classmate)}
 	data, err := os.ReadFile(path)
@@ -173,7 +181,10 @@ func LoadClassRegistry(path string) (*ClassRegistry, error) {
 	}
 	return c, nil
 }
-
+func (c *ClassRegistry) FirstIDs(n int) []int64 {
+	ids := c.IDs()
+	return ids[:min(n, len(ids))]
+}
 func Check(chatid int64) bool {
 	g, ok := Groups.GetGroup(chatid)
 	return ok && g != Empty
