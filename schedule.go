@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -386,4 +387,38 @@ func dayFinished(day ScheduleDay, now time.Time) bool {
 	}
 	last := periods[len(periods)-1]
 	return timeOfDay(now) >= last.End
+}
+func (w *WeekSchedule) EditEntry(date time.Time, idx int, fn func(*LessonEntry)) error {
+	w.mu.Lock()
+	key := date.Format("2006-01-02")
+	day, ok := w.Days[key]
+	if !ok || idx < 0 || idx >= len(day.Entries) {
+		w.mu.Unlock()
+		return fmt.Errorf("урок не найден")
+	}
+	day.Entries = slices.Clone(day.Entries)
+	fn(&day.Entries[idx])
+	w.Days[key] = day
+	w.mu.Unlock()
+	return w.Save(tabPath)
+}
+func (w *WeekSchedule) UpsertEntry(date time.Time, e LessonEntry) (int, error) {
+	w.mu.Lock()
+	key := date.Format("2006-01-02")
+	day, ok := w.Days[key]
+	if !ok {
+		day = ScheduleDay{Date: date}
+	}
+	day.Entries = slices.Clone(day.Entries)
+	same := func(x LessonEntry) bool { return x.Number == e.Number && x.Group == e.Group && !x.Addi }
+	if i := slices.IndexFunc(day.Entries, same); i >= 0 {
+		day.Entries[i] = e
+	} else {
+		day.Entries = append(day.Entries, e)
+	}
+	slices.SortStableFunc(day.Entries, func(a, b LessonEntry) int { return a.Number - b.Number })
+	idx := slices.IndexFunc(day.Entries, same)
+	w.Days[key] = day
+	w.mu.Unlock()
+	return idx, w.Save(tabPath)
 }

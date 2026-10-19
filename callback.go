@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"html"
 	"log"
@@ -41,6 +42,87 @@ func showScheduleImg(ctx *th.Context, query telego.CallbackQuery) bool {
 	code, _ := strconv.Atoi(dsa[2])
 	schImg(ctx, chID, day, dsa[1] == "t", groupByCode[code])
 	return true
+}
+
+type adminDlg struct {
+	ctx    *th.Context
+	chatID telego.ChatID
+	msgID  int
+	back   []telego.InlineKeyboardButton
+}
+
+func newAdminDlg(ctx *th.Context, query telego.CallbackQuery, backData string) *adminDlg {
+	ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(query.ID))
+	return &adminDlg{
+		ctx:    ctx,
+		chatID: query.Message.GetChat().ChatID(),
+		msgID:  query.Message.GetMessageID(),
+		back:   tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData(backData).WithStyle("success")),
+	}
+}
+func (d *adminDlg) show(text string, rows ...[]telego.InlineKeyboardButton) {
+	rows = append(rows, d.back)
+	d.ctx.Bot().EditMessageText(d.ctx, tu.EditMessageText(d.chatID, d.msgID,
+		`<tg-emoji emoji-id="5818920837645867167">😇</tg-emoji><b> `+text+`</b>`).
+		WithParseMode(telego.ModeHTML).
+		WithReplyMarkup(tu.InlineKeyboard(rows...)))
+}
+func (d *adminDlg) ask() string {
+	wctx, cancel := context.WithTimeout(d.ctx, 2*time.Minute)
+	defer cancel()
+	upd, err := waiter.WaitForMessage(wctx, d.chatID)
+	if err != nil || upd.Message == nil {
+		return ""
+	}
+	d.ctx.Bot().DeleteMessage(d.ctx, tu.Delete(d.chatID, upd.Message.MessageID))
+	return strings.TrimSpace(upd.Message.Text)
+}
+
+func (d *adminDlg) askUntil(redraw func(errLine string), validate func(string) error) string {
+	redraw("")
+	for range 3 {
+		txt := d.ask()
+		if txt == "" {
+			return ""
+		}
+		err := validate(txt)
+		if err == nil {
+			return txt
+		}
+		redraw(fmt.Sprintf("«%s» не подходит: %s\n", html.EscapeString(txt), html.EscapeString(err.Error())))
+	}
+	redraw("Не получилось, используй кнопки ниже.\n")
+	return ""
+}
+
+func (d *adminDlg) askDate(prefix string) string {
+	kb := tu.InlineKeyboardRow(
+		tu.InlineKeyboardButton("Вчера").WithCallbackData(prefix+":yesterday").WithStyle("primary"),
+		tu.InlineKeyboardButton("Сегодня").WithCallbackData(prefix+":today").WithStyle("success"),
+		tu.InlineKeyboardButton("Завтра").WithCallbackData(prefix+":tomorrow").WithStyle("primary"),
+	)
+	return d.askUntil(func(errLine string) {
+		d.show(errLine+"Напиши дату (ДД.ММ.ГГ) или выбери из списка", kb)
+	}, func(s string) error {
+		if _, err := resolveDay(s); err != nil {
+			return fmt.Errorf("формат ДД.ММ.ГГ, например 07.09.26")
+		}
+		return nil
+	})
+}
+
+func validRoom(s string) error {
+	if n, err := strconv.Atoi(s); err != nil || n < 0 || n > 999 {
+		return fmt.Errorf("кабинет — число от 0 до 999")
+	}
+	return nil
+}
+
+func validSubject(s string) error {
+	if len([]rune(s)) > 40 {
+		return fmt.Errorf("название длиннее 40 символов")
+	}
+	return nil
 }
 
 func callbackHan(bh *th.BotHandler) {
@@ -253,23 +335,373 @@ func scheduleCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 			return
 		}
 	case "edit":
-	// /*
-	// * СДЕЛАТЬ!!
-	// *
-	// *
-	// *
-	// *
-	//  */
+		scheduleEdit(ctx, query, parts[1:])
 	case "set":
-		// /*
-		// * СДЕЛАТЬ!!
-		// *
-		// *
-		// *
-		// *
-		//  */
+		scheduleSet(ctx, query, parts[1:])
 	}
 
+}
+
+var setGroups = map[string]Group{"a": Empty, "i": InfTec, "s": SocEco}
+
+func groupCode(g Group) string {
+	switch g {
+	case InfTec:
+		return "i"
+	case SocEco:
+		return "s"
+	}
+	return "a"
+}
+
+func scheduleSet(ctx *th.Context, query telego.CallbackQuery, p []string) {
+	d := newAdminDlg(ctx, query, "schedule")
+
+	if len(p) == 0 || p[0] == "" {
+		txt := d.askDate("schedule:set")
+		if txt == "" {
+			return
+		}
+		p = []string{txt}
+	}
+	date, err := resolveDay(p[0])
+	if err != nil {
+		d.show("Не разобрал дату. Формат: ДД.ММ.ГГ")
+		return
+	}
+	ds := date.Format(dateLayout)
+
+	if len(p) == 1 {
+		if day, ok := week.GetDay(date); ok && len(day.Entries) > 0 {
+			d.show(fmt.Sprintf("На %s уже есть расписание (строк: %d). Что сделать?", formatHeaderDate(date), len(day.Entries)),
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("Редактировать").WithCallbackData("schedule:edit:"+ds).WithStyle("primary"),
+					tu.InlineKeyboardButton("Заменить").WithCallbackData("schedule:set:"+ds+":1:a:cl").WithStyle("danger"),
+				))
+			return
+		}
+		p = []string{p[0], "1"}
+	}
+
+	n, err := strconv.Atoi(p[1])
+	last := len(scheduleFor(date))
+	if err != nil || n < 1 || n > last {
+		d.show("Некорректный номер урока")
+		return
+	}
+	code, act := "a", ""
+	if len(p) > 2 {
+		code = p[2]
+	}
+	if len(p) > 3 {
+		act = p[3]
+	}
+	g, ok := setGroups[code]
+	if !ok {
+		return
+	}
+
+	finish := func() {
+		day, ok := week.GetDay(date)
+		if !ok || len(day.Entries) == 0 {
+			d.show("Ничего не добавлено, расписание не создано")
+			return
+		}
+		d.show(fmt.Sprintf("Готово: расписание на %s сохранено (строк: %d)", formatHeaderDate(date), len(day.Entries)),
+			tu.InlineKeyboardRow(tu.InlineKeyboardButton("Проверить / изменить").
+				WithCallbackData("schedule:edit:"+ds).WithStyle("primary")))
+	}
+	next := func() {
+		if n >= last {
+			finish()
+			return
+		}
+		scheduleSet(ctx, query, []string{ds, strconv.Itoa(n + 1)})
+	}
+
+	switch act {
+	case "ok":
+		finish()
+		return
+	case "nx":
+		next()
+		return
+	case "cl":
+		week.DeleteDay(date)
+		act = ""
+	case "rm":
+		if !hasLesson(date, n, g) {
+			act = ""
+		}
+	}
+
+	base := fmt.Sprintf("schedule:set:%s:%d:%s", ds, n, code)
+	who := ""
+	if g != Empty {
+		who = " (" + entryLabel(LessonEntry{Group: g}) + ")"
+	}
+
+	if act != "rm" {
+		sug, hasSug := prevWeekLesson(date, n, g)
+
+		subject, room := "", 0
+		if act == "nm" {
+			if !hasSug {
+				d.show("Предложенного названия нет, начни урок заново")
+				return
+			}
+			subject, room = sug.Subject, sug.Room
+		} else {
+			var rows [][]telego.InlineKeyboardButton
+			if hasSug {
+				label := strings.TrimSpace(sug.Subject)
+				if label == "" {
+					label = "—"
+				}
+				rows = append(rows, tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton(label).WithCallbackData(base+":nm").WithStyle("primary")))
+			}
+			pick := func(label string, gr Group) telego.InlineKeyboardButton {
+				to, style := groupCode(gr), "primary"
+				if g == gr {
+					to, style = "a", "success"
+				}
+				return tu.InlineKeyboardButton(label).
+					WithCallbackData(fmt.Sprintf("schedule:set:%s:%d:%s", ds, n, to)).WithStyle(style)
+			}
+			rows = append(rows,
+				tu.InlineKeyboardRow(pick("ИТ", InfTec), pick("СЭ", SocEco)),
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("Пропустить").WithCallbackData(base+":nx").WithStyle("danger"),
+					tu.InlineKeyboardButton("Закончить").WithCallbackData(base+":ok"),
+				))
+			subject = d.askUntil(func(errLine string) {
+				d.show(errLine+fmt.Sprintf("%s, урок %d%s. Напиши название", formatHeaderDate(date), n, who), rows...)
+			}, validSubject)
+			if subject == "" {
+				return
+			}
+			if hasSug {
+				room = sug.Room
+			}
+		}
+		idx, err := week.UpsertEntry(date, LessonEntry{Number: n, Subject: subject, Room: room, Group: g})
+		if err != nil {
+			d.show(html.EscapeString(err.Error()))
+			return
+		}
+
+		var rows [][]telego.InlineKeyboardButton
+		if hasSug { 
+			rows = append(rows, tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("каб. "+strconv.Itoa(room)).WithCallbackData(base+":rm").WithStyle("primary")))
+		}
+		txt := d.askUntil(func(errLine string) {
+			d.show(errLine+fmt.Sprintf("Урок %d%s. Напиши кабинет", n, who), rows...)
+		}, validRoom)
+		if txt == "" {
+			return
+		}
+		r, _ := strconv.Atoi(txt)
+		if err := week.EditEntry(date, idx, func(le *LessonEntry) { le.Room = r }); err != nil {
+			d.show(html.EscapeString(err.Error()))
+			return
+		}
+	}
+
+	if g == Empty {
+		next()
+		return
+	}
+	other := SocEco
+	if g == SocEco {
+		other = InfTec
+	}
+	var rows [][]telego.InlineKeyboardButton
+	if !hasLesson(date, n, other) {
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Тот же урок для "+entryLabel(LessonEntry{Group: other})).
+				WithCallbackData(fmt.Sprintf("schedule:set:%s:%d:%s", ds, n, groupCode(other))).WithStyle("primary")))
+	}
+	rows = append(rows, tu.InlineKeyboardRow(
+		tu.InlineKeyboardButton("Дальше").WithCallbackData(base+":nx").WithStyle("success")))
+	d.show(fmt.Sprintf("Урок %d%s сохранён", n, who), rows...)
+}
+func scheduleEdit(ctx *th.Context, query telego.CallbackQuery, p []string) {
+	d := newAdminDlg(ctx, query, "schedule")
+	show := d.show
+	if len(p) == 0 || p[0] == "" {
+		txt := d.askDate("schedule:edit")
+		if txt == "" {
+			return
+		}
+		p = []string{txt}
+	}
+	date, err := resolveDay(p[0])
+	if err != nil {
+		show("Не разобрал дату. Формат: ДД.ММ.ГГ")
+		return
+	}
+	day, ok := week.GetDay(date)
+	if !ok {
+		show("На эту дату расписания нет")
+		return
+	}
+	ds := date.Format(dateLayout)
+	if len(p) == 1 {
+		var nums []int
+		for _, e := range day.Entries {
+			if !slices.Contains(nums, e.Number) {
+				nums = append(nums, e.Number)
+			}
+		}
+		slices.Sort(nums)
+		var btns []telego.InlineKeyboardButton
+		for _, n := range nums {
+			btns = append(btns, tu.InlineKeyboardButton(strconv.Itoa(n)).
+				WithCallbackData(fmt.Sprintf("schedule:edit:%s:%d", ds, n)).WithStyle("primary"))
+		}
+		var rows [][]telego.InlineKeyboardButton
+		for c := range slices.Chunk(btns, 4) {
+			rows = append(rows, tu.InlineKeyboardRow(c...))
+		}
+		show("Какой урок изменить? ("+formatHeaderDate(date)+")", rows...)
+		return
+	}
+	n, err := strconv.Atoi(p[1])
+	if err != nil {
+		show("Некорректный номер урока")
+		return
+	}
+	if len(p) == 2 {
+		var idxs []int
+		for i, e := range day.Entries {
+			if e.Number == n {
+				idxs = append(idxs, i)
+			}
+		}
+		switch {
+		case len(idxs) == 0:
+			show("Такого урока нет")
+			return
+		case len(idxs) > 1:
+			var rows [][]telego.InlineKeyboardButton
+			for _, i := range idxs {
+				e := day.Entries[i]
+				rows = append(rows, tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton(entryLabel(e)+" · "+strings.TrimSpace(e.Subject)).
+						WithCallbackData(fmt.Sprintf("schedule:edit:%s:%d:%d", ds, n, i)).WithStyle("primary")))
+			}
+			show(fmt.Sprintf("Урок %d: у какой группы менять?", n), rows...)
+			return
+		}
+		p = append(p, strconv.Itoa(idxs[0]))
+	}
+	idx, err := strconv.Atoi(p[2])
+	if err != nil || idx < 0 || idx >= len(day.Entries) || day.Entries[idx].Number != n {
+		show("Расписание успело измениться, начни заново")
+		return
+	}
+	e := day.Entries[idx]
+	base := fmt.Sprintf("schedule:edit:%s:%d:%d", ds, n, idx)
+	who := ""
+	if e.Group != Empty || e.Addi {
+		who = " (" + entryLabel(e) + ")"
+	}
+	if len(p) == 3 {
+		label := strings.TrimSpace(e.Subject)
+		if label == "" {
+			label = "—"
+		}
+		name := d.askUntil(func(errLine string) {
+			show(errLine+fmt.Sprintf("Урок %d%s. Напиши новое название или нажми на прежнее", n, who),
+				tu.InlineKeyboardRow(tu.InlineKeyboardButton(label).WithCallbackData(base+":nm").WithStyle("primary")))
+		}, validSubject)
+		if name == "" {
+			return
+		}
+		if err := week.EditEntry(date, idx, func(le *LessonEntry) { le.Subject = name }); err != nil {
+			show(html.EscapeString(err.Error()))
+			return
+		}
+		p = append(p, "nm")
+	}
+	if p[3] == "nm" {
+		txt := d.askUntil(func(errLine string) {
+			show(errLine+fmt.Sprintf("Урок %d%s. Напиши новый кабинет или нажми на прежний", n, who),
+				tu.InlineKeyboardRow(tu.InlineKeyboardButton("каб. "+strconv.Itoa(e.Room)).WithCallbackData(base+":rm").WithStyle("primary")))
+		}, validRoom)
+		if txt == "" {
+			return
+		}
+		room, _ := strconv.Atoi(txt)
+		if err := week.EditEntry(date, idx, func(le *LessonEntry) { le.Room = room }); err != nil {
+			show(html.EscapeString(err.Error()))
+			return
+		}
+	}
+	if day, ok = week.GetDay(date); !ok || idx >= len(day.Entries) {
+		return
+	}
+	e = day.Entries[idx]
+	show(fmt.Sprintf("Готово: урок %d%s · %s, каб. %d", n, who, html.EscapeString(strings.TrimSpace(e.Subject)), e.Room),
+		tu.InlineKeyboardRow(tu.InlineKeyboardButton("Другой урок").WithCallbackData("schedule:edit:"+ds).WithStyle("primary")))
+}
+
+func resolveDay(s string) (time.Time, error) {
+	y, m, dd := time.Now().Date()
+	today := time.Date(y, m, dd, 0, 0, 0, 0, time.UTC)
+	switch s {
+	case "yesterday":
+		return today.AddDate(0, 0, -1), nil
+	case "today":
+		return today, nil
+	case "tomorrow":
+		return today.AddDate(0, 0, 1), nil
+	}
+	return time.Parse(dateLayout, s)
+}
+
+func prevWeekLesson(date time.Time, n int, g Group) (LessonEntry, bool) {
+	for k := 1; k <= 8; k++ {
+		ref, ok := week.GetDay(date.AddDate(0, 0, -7*k))
+		if !ok || len(ref.Entries) == 0 {
+			continue
+		}
+		var cand []LessonEntry
+		for _, e := range ref.Entries {
+			if e.Number == n && !e.Addi {
+				cand = append(cand, e)
+			}
+		}
+		if len(cand) == 0 {
+			return LessonEntry{}, false
+		}
+		if i := slices.IndexFunc(cand, func(e LessonEntry) bool { return e.Group == g }); i >= 0 {
+			return cand[i], true
+		}
+		return cand[0], true
+	}
+	return LessonEntry{}, false
+}
+
+func hasLesson(date time.Time, n int, g Group) bool {
+	day, ok := week.GetDay(date)
+	return ok && slices.ContainsFunc(day.Entries, func(e LessonEntry) bool {
+		return e.Number == n && e.Group == g && !e.Addi
+	})
+}
+
+func entryLabel(e LessonEntry) string {
+	switch {
+	case e.Group == InfTec:
+		return "И-Т"
+	case e.Group == SocEco:
+		return "С-Э"
+	case e.Addi:
+		return "Доп."
+	}
+	return "Общий"
 }
 func announcementCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 	if s == "" {
@@ -354,20 +786,61 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 		}
 		return
 	case "make":
+		chatID, msgID := query.Message.GetChat().ChatID(), query.Message.GetMessageID()
+		const emoji = `<tg-emoji emoji-id="5818920837645867167">😇</tg-emoji><b> `
+		toPanel := tu.InlineKeyboard(tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Назад").WithCallbackData("members").WithStyle("success")))
+		fail := func(text string) {
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID, text).WithReplyMarkup(toPanel))
+		}
+
+		ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+			emoji+"Отправь ID пользователя</b>\nОн должен хотя бы раз нажать /start у бота",
+		).WithParseMode("HTML").WithReplyMarkup(toPanel))
+		wctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		upd, err := waiter.WaitForMessage(wctx, chatID)
+		if err != nil || upd.Message == nil {
+			return
+		}
+		ctx.Bot().DeleteMessage(ctx, tu.Delete(chatID, upd.Message.MessageID))
+		id, perr := strconv.ParseInt(strings.TrimSpace(upd.Message.Text), 10, 64)
+		if perr != nil || id <= 0 {
+			fail("ID должен быть положительным числом")
+			return
+		}
+		if _, exists := Groups.Get(id); exists {
+			memberCard(ctx, chatID, msgID, id, false)
+			return
+		}
+		chat, cerr := ctx.Bot().GetChat(ctx, &telego.GetChatParams{ChatID: tu.ID(id)})
+		if cerr != nil {
+			fail("Бот не знает такого пользователя: пусть сначала нажмёт /start")
+			return
+		}
+		Groups.Update(id, func(c *Classmate) {
+			if chat.Username != "" {
+				c.TelegName = "@" + chat.Username
+			}
+			if n, err := cleanName(chat.FirstName); err == nil {
+				c.Name = n
+			}
+			c.ManualSettings = true
+		})
+		memberCard(ctx, chatID, msgID, id, false)
 	case "edit":
 		chatID, msgID := query.Message.GetChat().ChatID(), query.Message.GetMessageID()
 		const emoji = `<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> `
 
 		var (
 			id    int64
-			dood  Classmate
 			found bool
 		)
 		hasID := len(parts) > 1 && parts[1] != ""
 		if hasID {
 			if v, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
 				id = v
-				dood, found = Groups.Get(id)
+				_, found = Groups.Get(id)
 			}
 		}
 		action, arg := "", ""
@@ -377,69 +850,8 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 		if len(parts) > 3 {
 			arg = parts[3]
 		}
-		back := tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад").WithCallbackData("members:edit").WithStyle("success"))
-		card := func() {
-			dood, _ = Groups.Get(id)
-			pfx := fmt.Sprintf("members:edit:%d:", id)
-			bd := "не указан"
-			if dood.Birthday.IsSet() {
-				bd = fmt.Sprintf("%02d.%02d", dood.Birthday.Day, dood.Birthday.Month)
-				if dood.Birthday.Year != 0 {
-					bd += fmt.Sprintf(".%d", dood.Birthday.Year)
-				}
-			}
-			ownBd := dood.Announcement == "all" || dood.Announcement == "self"
-			otherBd := dood.Announcement == "all" || dood.Announcement == "other"
-			notices := []struct {
-				name string
-				on   bool
-			}{
-				{"Свой день рождения", ownBd},
-				{"Дни рождения одноклассников", otherBd},
-				{"Новвоведения бота", dood.Innovations},
-				{"График дежурств", dood.Duty},
-			}
-			parts := []tu.MessageEntityCollection{
-				tu.Entity("🍎").CustomEmoji("5818920837645867167"), tu.Entity(" "), tu.Entity(displayName(id, dood)).Bold(), tu.Entity("\n"),
-				tu.Entity("🏷").CustomEmoji("5987802868734760945"), tu.Entity(" Группа: ").Bold(), tu.Entity(dood.Group.RuString()), tu.Entity("\n"),
-				tu.Entity("🎂").CustomEmoji("5994502837327892086"), tu.Entity(" День рождения: ").Bold(), tu.Entity(bd), tu.Entity("\n"),
-				tu.Entity("🔔").CustomEmoji("5909201569898827582"), tu.Entity(" Уведомления:").Bold(),
-			}
-			for i, n := range notices {
-				branch := " ┣"
-				if i == len(notices)-1 {
-					branch = " ┗"
-				}
-				icon, eid := "❌", "5778527486270770928"
-				if n.on {
-					icon, eid = "✅", "5776375003280838798"
-				}
-				parts = append(parts,
-					tu.Entity("\n"+branch+" "+n.name+" "),
-					tu.Entity(icon).CustomEmoji(eid),
-				)
-			}
-			parts = append(parts, tu.Entity("\n"),
-				tu.Entity("😇").CustomEmoji("5879841310902324730"), tu.Entity(" Выберите, что изменить: ").Bold())
-			txt, entities := tu.MessageEntities(parts...)
-			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID, txt).
-				WithEntities(entities...).
-				WithReplyMarkup(tu.InlineKeyboard(
-					tu.InlineKeyboardRow(
-						tu.InlineKeyboardButton("Имя").WithCallbackData(pfx+"name").WithStyle("primary"),
-						tu.InlineKeyboardButton("Д.Р.").WithCallbackData(pfx+"bd").WithStyle("primary"),
-						tu.InlineKeyboardButton("Уведомления").WithCallbackData(pfx+"announcement").WithStyle("primary"),
-					),
-					tu.InlineKeyboardRow(
-						tu.InlineKeyboardButton("Без группы").WithCallbackData(pfx+"grp:no").WithStyle("danger"),
-						tu.InlineKeyboardButton("СЭ").WithCallbackData(pfx+"grp:se").WithStyle("success"),
-						tu.InlineKeyboardButton("ИТ").WithCallbackData(pfx+"grp:it").WithStyle("success"),
-					),
-					tu.InlineKeyboardRow(
-						tu.InlineKeyboardButton("Админ").WithCallbackData(pfx+"adm").WithStyle("danger")),
-					back,
-				)))
-		}
+		annMenu := false
+		card := func() { memberCard(ctx, chatID, msgID, id, annMenu) }
 		switch {
 		case !hasID:
 			var baty []telego.InlineKeyboardButton
@@ -502,13 +914,126 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 			}
 			card()
 		case action == "announcement":
-		
+			switch arg {
+			case "self", "other":
+				Groups.Update(id, func(c *Classmate) {
+					own := c.Announcement == "all" || c.Announcement == "self"
+					other := c.Announcement == "all" || c.Announcement == "other"
+					if arg == "self" {
+						own = !own
+					} else {
+						other = !other
+					}
+					switch {
+					case own && other:
+						c.Announcement = "all"
+					case own:
+						c.Announcement = "self"
+					case other:
+						c.Announcement = "other"
+					default:
+						c.Announcement = "non"
+					}
+				})
+			case "inv":
+				Groups.Update(id, func(c *Classmate) { c.Innovations = !c.Innovations })
+			case "duty":
+				Groups.Update(id, func(c *Classmate) { c.Duty = !c.Duty })
+			}
+			Groups.Update(id, func(c *Classmate) {
+				c.ManualSettings = true
+				c.Notify = c.Announcement == "all" && c.Duty && c.Innovations
+			})
+			annMenu = true
+			card()
 		// case action == "":
 		default:
 			card()
 		}
 		return
 	}
+}
+func memberCard(ctx *th.Context, chatID telego.ChatID, msgID int, id int64, annMenu bool) {
+	dood, _ := Groups.Get(id)
+	pfx := fmt.Sprintf("members:edit:%d:", id)
+	back := tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад").WithCallbackData("members:edit").WithStyle("success"))
+
+	dood, _ = Groups.Get(id)
+	bd := "не указан"
+	if dood.Birthday.IsSet() {
+		bd = fmt.Sprintf("%02d.%02d", dood.Birthday.Day, dood.Birthday.Month)
+		if dood.Birthday.Year != 0 {
+			bd += fmt.Sprintf(".%d", dood.Birthday.Year)
+		}
+	}
+	ownBd := dood.Announcement == "all" || dood.Announcement == "self"
+	otherBd := dood.Announcement == "all" || dood.Announcement == "other"
+	notices := []struct {
+		name string
+		on   bool
+	}{
+		{"Свой день рождения", ownBd},
+		{"Дни рождения одноклассников", otherBd},
+		{"Новвоведения бота", dood.Innovations},
+		{"График дежурств", dood.Duty},
+	}
+	parts := []tu.MessageEntityCollection{
+		tu.Entity("🍎").CustomEmoji("5818920837645867167"), tu.Entity(" "), tu.Entity(displayName(id, dood)).Bold(), tu.Entity("\n"),
+		tu.Entity("🏷").CustomEmoji("5987802868734760945"), tu.Entity(" Группа: ").Bold(), tu.Entity(dood.Group.RuString()), tu.Entity("\n"),
+		tu.Entity("🎂").CustomEmoji("5994502837327892086"), tu.Entity(" День рождения: ").Bold(), tu.Entity(bd), tu.Entity("\n"),
+		tu.Entity("🔔").CustomEmoji("5909201569898827582"), tu.Entity(" Уведомления:").Bold(),
+	}
+	for i, n := range notices {
+		branch := " ┣"
+		if i == len(notices)-1 {
+			branch = " ┗"
+		}
+		icon, eid := "❌", "5778527486270770928"
+		if n.on {
+			icon, eid = "✅", "5776375003280838798"
+		}
+		parts = append(parts,
+			tu.Entity("\n"+branch+" "+n.name+" "),
+			tu.Entity(icon).CustomEmoji(eid),
+		)
+	}
+	parts = append(parts, tu.Entity("\n"),
+		tu.Entity("😇").CustomEmoji("5879841310902324730"), tu.Entity(" Выберите, что изменить: ").Bold())
+	txt, entities := tu.MessageEntities(parts...)
+	kb := tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Имя").WithCallbackData(pfx+"name").WithStyle("primary"),
+			tu.InlineKeyboardButton("Д.Р.").WithCallbackData(pfx+"bd").WithStyle("primary"),
+			tu.InlineKeyboardButton("Уведомления").WithCallbackData(pfx+"announcement").WithStyle("primary"),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Без группы").WithCallbackData(pfx+"grp:no").WithStyle("danger"),
+			tu.InlineKeyboardButton("СЭ").WithCallbackData(pfx+"grp:se").WithStyle("success"),
+			tu.InlineKeyboardButton("ИТ").WithCallbackData(pfx+"grp:it").WithStyle("success"),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Админ").WithCallbackData(pfx+"adm").WithStyle("danger")),
+		back,
+	)
+	if annMenu {
+		kb = tu.InlineKeyboard(
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("Свой Д.Р.").WithCallbackData(pfx+"announcement:self").WithStyle("primary"),
+				tu.InlineKeyboardButton("Д.Р. класса").WithCallbackData(pfx+"announcement:other").WithStyle("primary"),
+			),
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("Нововведения").WithCallbackData(pfx+"announcement:inv").WithStyle("primary"),
+				tu.InlineKeyboardButton("Дежурства").WithCallbackData(pfx+"announcement:duty").WithStyle("primary"),
+			),
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton("Назад").WithCallbackData(fmt.Sprintf("members:edit:%d", id)).WithStyle("success"),
+			),
+		)
+	}
+	ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID, txt).
+		WithEntities(entities...).
+		WithReplyMarkup(kb))
+
 }
 func nextPage(query telego.CallbackQuery, ctx *th.Context) {
 	Groups.Update(query.From.ID, func(c *Classmate) { c.SettingsPage += 1 })
@@ -523,7 +1048,7 @@ func wrName(query telego.CallbackQuery, ctx *th.Context) {
 	ctx.Bot().DeleteMessage(ctx, tu.Delete(chat, query.Message.GetMessageID()))
 	ctx.Bot().SendMessage(ctx, tu.Message(chat, "<b>Понял! Жду твоё настоящее имя!</b>").WithParseMode("html"))
 
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		upd, err := waiter.WaitForMessage(ctx, chat)
 		if err != nil || upd.Message == nil {
 			return

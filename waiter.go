@@ -34,7 +34,9 @@ func (w *Waiter) WaitForMessage(ctx context.Context, chatID telego.ChatID) (tele
 	w.mu.Unlock()
 	defer func() {
 		w.mu.Lock()
-		delete(w.waiting, chatID)
+		if w.waiting[chatID] == ch {
+			delete(w.waiting, chatID)
+		}
 		w.mu.Unlock()
 	}()
 
