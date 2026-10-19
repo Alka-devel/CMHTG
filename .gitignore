@@ -9,7 +9,7 @@
 *.json
 *.bat
 vendor/
-announcements/
+
 .idea/
 .vscode/
 
