@@ -82,6 +82,7 @@ func main() {
 	flag.StringVar(&botToken, "token", botToken, "Token from BotFather")
 	flag.StringVar(&tabPath, "table-path", tabPath, "path to table with data")
 	flag.StringVar(&claPath, "clsmts-table-path", claPath, "path to table with classmates")
+	flag.StringVar(&annDir, "announcements-dir", annDir, "path to announcements folder")
 	flag.Int64Var(&ownerID, "owner-tg-id", ownerID, "Telegram ID of owner of bot")
 	flag.Parse()
 
