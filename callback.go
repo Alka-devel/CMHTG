@@ -288,57 +288,70 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 	}
 	switch parts[0] {
 	case "del":
-		var baty []telego.InlineKeyboardButton
-		for _, id := range Groups.FirstIDs(6) {
-			if dod, ok := Groups.Get(id); ok {
-				baty = append(baty, tu.InlineKeyboardButton(dod.Name).WithCallbackData(fmt.Sprintf("members:del:%d", id)).WithStyle("primary"))
+		var (
+			id    int64
+			dood  Classmate
+			found bool
+			idErr error
+		)
+		hasID := len(parts) > 1 && parts[1] != ""
+		if hasID {
+			if id, idErr = strconv.ParseInt(parts[1], 10, 64); idErr == nil {
+				dood, found = Groups.Get(id)
 			}
 		}
-		if len(parts) > 1 && parts[1] != "" {
-			ctx.Bot().EditMessageText(ctx,
-				tu.EditMessageText(query.Message.GetChat().ChatID(),
-					query.Message.GetMessageID(),
-					`<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> Ты точно уверен(-а), что хочешь удалить этого (%s) человека?</b>`,
-				).WithParseMode("HTML").WithReplyMarkup(
-					tu.InlineKeyboard(
-						tu.InlineKeyboardRow(tu.InlineKeyboardButton("Да").WithStyle("danger").WithCallbackData(fmt.Sprintf("members:del:%s:t", parts[1])),
-							tu.InlineKeyboardButton("Нет").WithStyle("success").WithCallbackData("members")),
-					),
-				))
-			return
-		}
-		if len(parts) > 2 && parts[1] != "" && parts[2] == "t" {
-			id, idErr := strconv.ParseInt(parts[1], 64, 0)
-			dod, ok := Groups.Get(id)
-			delErr := Groups.Delete(id)
-			if delErr != nil || idErr != nil || !ok {
-				err := delErr
-				if err == nil {
-					err = idErr
-				}
-				ctx.Bot().EditMessageText(ctx,
-					tu.EditMessageText(query.Message.GetChat().ChatID(),
-						query.Message.GetMessageID(),
-						`<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> Произошла ошибка: `+html.EscapeString(err.Error())+`</b>`,
-					).WithParseMode("HTML"))
+
+		chatID, msgID := query.Message.GetChat().ChatID(), query.Message.GetMessageID()
+		const emoji = `<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> `
+
+		switch {
+		case hasID && len(parts) > 2 && parts[2] == "t":
+			err := idErr
+			if err == nil && !found {
+				err = fmt.Errorf("пользователь %d не найден", id)
+			}
+			if err == nil {
+				err = Groups.Delete(id)
+			}
+			if err != nil {
+				ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+					emoji+`Произошла ошибка: `+html.EscapeString(err.Error())+`</b>`,
+				).WithParseMode("HTML"))
 				return
 			}
-			ctx.Bot().EditMessageText(ctx,
-				tu.EditMessageText(query.Message.GetChat().ChatID(),
-					query.Message.GetMessageID(),
-					`<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> Пользователь (`+html.EscapeString(dod.TelegName)+`) успешно удалён</b>`,
-				).WithParseMode("HTML"))
-			return
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+				emoji+`Пользователь (`+html.EscapeString(displayName(id, dood))+`) успешно удалён</b>`,
+			).WithParseMode("HTML"))
+
+		case hasID:
+			if !found {
+				return
+			}
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+				emoji+`Ты точно уверен(-а), что хочешь удалить этого (`+html.EscapeString(displayName(id, dood))+`) человека?</b>`,
+			).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("Да").WithStyle("danger").WithCallbackData(fmt.Sprintf("members:del:%d:t", id)),
+					tu.InlineKeyboardButton("Нет").WithStyle("success").WithCallbackData("members"),
+				),
+			)))
+
+		default:
+			var baty []telego.InlineKeyboardButton
+			for _, uid := range Groups.FirstIDs(4) {
+				if u, ok := Groups.Get(uid); ok {
+					baty = append(baty, tu.InlineKeyboardButton(displayName(uid, u)).
+						WithCallbackData(fmt.Sprintf("members:del:%d", uid)).
+						WithStyle("primary"))
+				}
+			}
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+				emoji+`Выбери человека из списка или напиши его username для удаления</b>`,
+			).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
+				tu.InlineKeyboardRow(baty...),
+				tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("members").WithStyle("success")),
+			)))
 		}
-		ctx.Bot().EditMessageText(ctx,
-			tu.EditMessageText(query.Message.GetChat().ChatID(),
-				query.Message.GetMessageID(),
-				`<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> Выбери человека из списка или напиши его username для удаления</b>`,
-			).WithParseMode("HTML").WithReplyMarkup(
-				tu.InlineKeyboard(
-					tu.InlineKeyboardRow(baty...),
-					tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("members").WithStyle("success")),
-				)))
 		return
 	case "make":
 	case "edit":

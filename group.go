@@ -1,10 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -218,4 +220,7 @@ func (g Group) RuString() string {
 	default:
 		return "хз"
 	}
+}
+func displayName(id int64, c Classmate) string {
+	return cmp.Or(c.Name, c.TelegName, "ID "+strconv.FormatInt(id, 10))
 }
