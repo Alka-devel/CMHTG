@@ -157,7 +157,7 @@ func callbackHan(bh *th.BotHandler) {
 }
 func adminpanel(query telego.CallbackQuery, ctx *th.Context, state int) {
 	parts := []tu.MessageEntityCollection{
-		tu.Entity("😇").CustomEmoji("5199597179311788893"),
+		tu.Entity("😇").CustomEmoji("5818920837645867167"),
 		tu.Entity(" Выберите действие.").Bold(),
 	}
 	var rows [][]telego.InlineKeyboardButton
@@ -225,7 +225,7 @@ func scheduleCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 		ctx.Bot().EditMessageText(ctx,
 			tu.EditMessageText(query.Message.GetChat().ChatID(),
 				query.Message.GetMessageID(),
-				`<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> Напиши дату дня, которого хочешь удалить или выбери из списка</b>`).
+				`<tg-emoji emoji-id="5818920837645867167">😇</tg-emoji><b> Напиши дату дня, которого хочешь удалить или выбери из списка</b>`).
 				WithParseMode(telego.ModeHTML).
 				WithReplyMarkup(tu.InlineKeyboard(
 					tu.InlineKeyboardRow(
@@ -302,7 +302,7 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 		}
 
 		chatID, msgID := query.Message.GetChat().ChatID(), query.Message.GetMessageID()
-		const emoji = `<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> `
+		const emoji = `<tg-emoji emoji-id="5818920837645867167">😇</tg-emoji><b> `
 
 		switch {
 		case hasID && len(parts) > 2 && parts[2] == "t":
@@ -381,24 +381,65 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 		card := func() {
 			dood, _ = Groups.Get(id)
 			pfx := fmt.Sprintf("members:edit:%d:", id)
-			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
-				emoji+html.EscapeString(displayName(id, dood))+"</b>\n"+
-					"Группа: "+dood.Group.RuString()+"\n"+
-					"Админ: "+map[bool]string{true: "да", false: "нет"}[dood.Admin],
-			).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
-				tu.InlineKeyboardRow(
-					tu.InlineKeyboardButton("Имя").WithCallbackData(pfx+"name").WithStyle("primary"),
-					tu.InlineKeyboardButton("Админ").WithCallbackData(pfx+"adm").WithStyle("primary"),
-				),
-				tu.InlineKeyboardRow(
-					tu.InlineKeyboardButton("ИТ").WithCallbackData(pfx+"grp:it").WithStyle("success"),
-					tu.InlineKeyboardButton("СЭ").WithCallbackData(pfx+"grp:se").WithStyle("success"),
-					tu.InlineKeyboardButton("Без группы").WithCallbackData(pfx+"grp:no").WithStyle("danger"),
-				),
-				back,
-			)))
+			bd := "не указан"
+			if dood.Birthday.IsSet() {
+				bd = fmt.Sprintf("%02d.%02d", dood.Birthday.Day, dood.Birthday.Month)
+				if dood.Birthday.Year != 0 {
+					bd += fmt.Sprintf(".%d", dood.Birthday.Year)
+				}
+			}
+			ownBd := dood.Announcement == "all" || dood.Announcement == "self"
+			otherBd := dood.Announcement == "all" || dood.Announcement == "other"
+			notices := []struct {
+				name string
+				on   bool
+			}{
+				{"Свой день рождения", ownBd},
+				{"Дни рождения одноклассников", otherBd},
+				{"Новвоведения бота", dood.Innovations},
+				{"График дежурств", dood.Duty},
+			}
+			parts := []tu.MessageEntityCollection{
+				tu.Entity("🍎").CustomEmoji("5818920837645867167"), tu.Entity(" "), tu.Entity(displayName(id, dood)).Bold(), tu.Entity("\n"),
+				tu.Entity("🏷").CustomEmoji("5987802868734760945"), tu.Entity(" Группа: ").Bold(), tu.Entity(dood.Group.RuString()), tu.Entity("\n"),
+				tu.Entity("🎂").CustomEmoji("5994502837327892086"), tu.Entity(" День рождения: ").Bold(), tu.Entity(bd), tu.Entity("\n"),
+				tu.Entity("🔔").CustomEmoji("5909201569898827582"), tu.Entity(" Уведомления:").Bold(),
+			}
+			for i, n := range notices {
+				branch := " ┣"
+				if i == len(notices)-1 {
+					branch = " ┗"
+				}
+				icon, eid := "❌", "5778527486270770928"
+				if n.on {
+					icon, eid = "✅", "5776375003280838798"
+				}
+				parts = append(parts,
+					tu.Entity("\n"+branch+" "+n.name+" "),
+					tu.Entity(icon).CustomEmoji(eid),
+				)
+			}
+			parts = append(parts, tu.Entity("\n"),
+				tu.Entity("😇").CustomEmoji("5879841310902324730"), tu.Entity(" Выберите, что изменить: ").Bold())
+			txt, entities := tu.MessageEntities(parts...)
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID, txt).
+				WithEntities(entities...).
+				WithReplyMarkup(tu.InlineKeyboard(
+					tu.InlineKeyboardRow(
+						tu.InlineKeyboardButton("Имя").WithCallbackData(pfx+"name").WithStyle("primary"),
+						tu.InlineKeyboardButton("Д.Р.").WithCallbackData(pfx+"bd").WithStyle("primary"),
+						tu.InlineKeyboardButton("Уведомления").WithCallbackData(pfx+"announcement").WithStyle("primary"),
+					),
+					tu.InlineKeyboardRow(
+						tu.InlineKeyboardButton("Без группы").WithCallbackData(pfx+"grp:no").WithStyle("danger"),
+						tu.InlineKeyboardButton("СЭ").WithCallbackData(pfx+"grp:se").WithStyle("success"),
+						tu.InlineKeyboardButton("ИТ").WithCallbackData(pfx+"grp:it").WithStyle("success"),
+					),
+					tu.InlineKeyboardRow(
+						tu.InlineKeyboardButton("Админ").WithCallbackData(pfx+"adm").WithStyle("danger")),
+					back,
+				)))
 		}
-
 		switch {
 		case !hasID:
 			var baty []telego.InlineKeyboardButton
@@ -431,19 +472,38 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 			if nerr != nil {
 				ctx.Bot().SendMessage(ctx, tu.Message(chatID, "Не подходит: "+nerr.Error()))
 			} else {
-				Groups.Update(id, func(c *Classmate) { c.Name = name })
+				Groups.Update(id, func(c *Classmate) { c.Name = name; c.ManualSettings = true })
 			}
 			card()
-
 		case action == "adm":
 			Groups.Update(id, func(c *Classmate) { c.Admin = !c.Admin })
 			card()
-
 		case action == "grp":
 			g := map[string]Group{"it": InfTec, "se": SocEco, "no": Empty}[arg]
 			Groups.SetGroup(id, g)
+			Groups.Update(id, func(c *Classmate) { c.ManualSettings = true })
 			card()
-
+		case action == "bd":
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+				emoji+`Напиши новый день рождения</b>`,
+			).WithParseMode("HTML"))
+			upd, err := waiter.WaitForMessage(ctx, chatID)
+			if err != nil || upd.Message == nil {
+				return
+			}
+			bd, nerr := time.Parse(dateLayout, upd.Message.Text)
+			if nerr != nil {
+				ctx.Bot().SendMessage(ctx, tu.Message(chatID, "Не подходит: "+nerr.Error()))
+			} else {
+				Groups.Update(id, func(c *Classmate) {
+					c.Birthday = Birthday{Day: bd.Day(), Month: int(bd.Month()), Year: bd.Year()}
+					c.ManualSettings = true
+				})
+			}
+			card()
+		case action == "announcement":
+		
+		// case action == "":
 		default:
 			card()
 		}

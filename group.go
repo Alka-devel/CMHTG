@@ -55,18 +55,19 @@ const (
 )
 
 type Classmate struct {
-	Group        Group                `json:"group"`
-	Name         string               `json:"name,omitempty"`
-	Admin        bool                 `json:"admin,omitempty"`
-	SettingsPage int8                 `json:"settings_page,omitzero"`
-	TelegName    string               `json:"telegname,omitempty"`
-	Notify       bool                 `json:"notify,omitempty"`
-	Announcement string               `json:"announcement,omitempty"`
-	Innovations  bool                 `json:"innovations,omitempty"`
-	Duty         bool                 `json:"duty,omitempty"`
-	Birthday     Birthday             `json:"birthday,omitzero"`
-	Sent         map[Notice]time.Time `json:"sent,omitempty"`
-	Configured   bool                 `json:"configured,omitempty"`
+	Group          Group                `json:"group"`
+	Name           string               `json:"name,omitempty"`
+	Admin          bool                 `json:"admin,omitempty"`
+	SettingsPage   int8                 `json:"settings_page,omitzero"`
+	TelegName      string               `json:"telegname,omitempty"`
+	Notify         bool                 `json:"notify,omitempty"`
+	Announcement   string               `json:"announcement,omitempty"`
+	Innovations    bool                 `json:"innovations,omitempty"`
+	Duty           bool                 `json:"duty,omitempty"`
+	Birthday       Birthday             `json:"birthday,omitzero"`
+	Sent           map[Notice]time.Time `json:"sent,omitempty"`
+	Configured     bool                 `json:"configured,omitempty"`
+	ManualSettings bool                 `json:"manual,omitempty"`
 }
 
 type ClassRegistry struct {
