@@ -355,6 +355,99 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 		return
 	case "make":
 	case "edit":
+		chatID, msgID := query.Message.GetChat().ChatID(), query.Message.GetMessageID()
+		const emoji = `<tg-emoji emoji-id="5199597179311788893">😇</tg-emoji><b> `
+
+		var (
+			id    int64
+			dood  Classmate
+			found bool
+		)
+		hasID := len(parts) > 1 && parts[1] != ""
+		if hasID {
+			if v, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+				id = v
+				dood, found = Groups.Get(id)
+			}
+		}
+		action, arg := "", ""
+		if len(parts) > 2 {
+			action = parts[2]
+		}
+		if len(parts) > 3 {
+			arg = parts[3]
+		}
+		back := tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад").WithCallbackData("members:edit").WithStyle("success"))
+		card := func() {
+			dood, _ = Groups.Get(id)
+			pfx := fmt.Sprintf("members:edit:%d:", id)
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+				emoji+html.EscapeString(displayName(id, dood))+"</b>\n"+
+					"Группа: "+dood.Group.RuString()+"\n"+
+					"Админ: "+map[bool]string{true: "да", false: "нет"}[dood.Admin],
+			).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("Имя").WithCallbackData(pfx+"name").WithStyle("primary"),
+					tu.InlineKeyboardButton("Админ").WithCallbackData(pfx+"adm").WithStyle("primary"),
+				),
+				tu.InlineKeyboardRow(
+					tu.InlineKeyboardButton("ИТ").WithCallbackData(pfx+"grp:it").WithStyle("success"),
+					tu.InlineKeyboardButton("СЭ").WithCallbackData(pfx+"grp:se").WithStyle("success"),
+					tu.InlineKeyboardButton("Без группы").WithCallbackData(pfx+"grp:no").WithStyle("danger"),
+				),
+				back,
+			)))
+		}
+
+		switch {
+		case !hasID:
+			var baty []telego.InlineKeyboardButton
+			for _, uid := range Groups.FirstIDs(4) {
+				if u, ok := Groups.Get(uid); ok {
+					baty = append(baty, tu.InlineKeyboardButton(displayName(uid, u)).
+						WithCallbackData(fmt.Sprintf("members:edit:%d", uid)).
+						WithStyle("primary"))
+				}
+			}
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+				emoji+`Выбери человека для редактирования</b>`,
+			).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
+				tu.InlineKeyboardRow(baty...),
+				tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("members").WithStyle("success")),
+			)))
+
+		case !found:
+			return
+
+		case action == "name":
+			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+				emoji+`Напиши новое имя</b>`,
+			).WithParseMode("HTML"))
+			upd, err := waiter.WaitForMessage(ctx, chatID)
+			if err != nil || upd.Message == nil {
+				return
+			}
+			name, nerr := cleanName(upd.Message.Text)
+			if nerr != nil {
+				ctx.Bot().SendMessage(ctx, tu.Message(chatID, "Не подходит: "+nerr.Error()))
+			} else {
+				Groups.Update(id, func(c *Classmate) { c.Name = name })
+			}
+			card()
+
+		case action == "adm":
+			Groups.Update(id, func(c *Classmate) { c.Admin = !c.Admin })
+			card()
+
+		case action == "grp":
+			g := map[string]Group{"it": InfTec, "se": SocEco, "no": Empty}[arg]
+			Groups.SetGroup(id, g)
+			card()
+
+		default:
+			card()
+		}
+		return
 	}
 }
 func nextPage(query telego.CallbackQuery, ctx *th.Context) {
