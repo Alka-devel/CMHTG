@@ -109,7 +109,7 @@ func (j *job) mainSpecCheck() {
 func (j *job) otherBithdayCheck(ids []int64) {
 	me, ok := Groups.Get(j.i)
 	now := time.Now()
-	if !ok || !(me.Announcement == "all" || me.Announcement == "other") ||
+	if !ok || !(j.i == ownerID || me.Announcement == "all" || me.Announcement == "other") ||
 		now.Hour() <= 10 || sameDay(Groups.LastSent(j.i, NoticeOtherBD), now) {
 		return
 	}
@@ -119,7 +119,7 @@ func (j *job) otherBithdayCheck(ids []int64) {
 			continue
 		}
 		ch, ok := Groups.Get(id)
-		if !ok || ch.AnonBdMode || !ch.Birthday.IsIn(1) {
+		if !ok || (ch.AnonBdMode && j.i != ownerID) || !ch.Birthday.IsIn(1) {
 			continue
 		}
 		_, err := j.bot.SendMessage(j.ctx, tu.MessageWithEntities(tu.ID(j.i),
@@ -141,7 +141,7 @@ func (j *job) otherBithdayCheck(ids []int64) {
 func (j *job) selfBirthdayCheck() {
 	dood, ok := Groups.Get(j.i)
 	now := time.Now()
-	if !ok || !(dood.Announcement == "all" || dood.Announcement == "self") ||
+	if !ok || !(j.i == ownerID || dood.Announcement == "all" || dood.Announcement == "self") ||
 		!dood.Birthday.IsToday() || now.Hour() <= 10 ||
 		sameDay(Groups.LastSent(j.i, NoticeSelfBD), now) {
 		return
