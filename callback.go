@@ -878,6 +878,7 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 		}
 		annMenu := false
 		card := func() { memberCard(ctx, chatID, msgID, id, annMenu) }
+		pfx := fmt.Sprintf("members:edit:%d:", id)
 		switch {
 		case !hasID:
 			var baty []telego.InlineKeyboardButton
@@ -888,12 +889,43 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 						WithStyle("primary"))
 				}
 			}
+			backKb := tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("members").WithStyle("success"))
 			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
-				emoji+`Выбери человека для редактирования</b>`,
+				emoji+`Выбери человека из списка или отправь его ID или @username</b>`,
 			).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
 				tu.InlineKeyboardRow(baty...),
-				tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад к панели").WithCallbackData("members").WithStyle("success")),
+				backKb,
 			)))
+
+			wctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			upd, err := waiter.WaitForMessage(wctx, chatID)
+			if err != nil || upd.Message == nil {
+				return // таймаут или нажата кнопка
+			}
+			ctx.Bot().DeleteMessage(ctx, tu.Delete(chatID, upd.Message.MessageID))
+			in := strings.TrimSpace(upd.Message.Text)
+			if n, perr := strconv.ParseInt(in, 10, 64); perr == nil {
+				id = n
+				_, found = Groups.Get(id)
+			} else {
+				uname := "@" + strings.TrimPrefix(in, "@")
+				for _, uid := range Groups.IDs() {
+					if u, ok := Groups.Get(uid); ok && strings.EqualFold(u.TelegName, uname) {
+						id, found = uid, true
+						break
+					}
+				}
+			}
+			if !found {
+				ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
+					emoji+`Такого участника нет. Проверь ID или @username</b>`,
+				).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
+					tu.InlineKeyboardRow(tu.InlineKeyboardButton("Назад").WithCallbackData("members:edit").WithStyle("success")),
+				)))
+				return
+			}
+			memberCard(ctx, chatID, msgID, id, false)
 
 		case !found:
 			return
@@ -922,9 +954,23 @@ func membersCallback(ctx *th.Context, query telego.CallbackQuery, s string) {
 			Groups.Update(id, func(c *Classmate) { c.ManualSettings = true })
 			card()
 		case action == "bd":
+			if arg == "anon" {
+				Groups.Update(id, func(c *Classmate) {
+					c.AnonBdMode = !c.AnonBdMode
+					c.ManualSettings = true
+				})
+				card()
+				return
+			}
+			label := "Не сообщать"
+			if cur, _ := Groups.Get(id); cur.AnonBdMode {
+				label += " ✅"
+			}
 			ctx.Bot().EditMessageText(ctx, tu.EditMessageText(chatID, msgID,
 				emoji+`Напиши новый день рождения</b>`,
-			).WithParseMode("HTML"))
+			).WithParseMode("HTML").WithReplyMarkup(tu.InlineKeyboard(
+				tu.InlineKeyboardRow(tu.InlineKeyboardButton(label).WithCallbackData(pfx+"bd:anon").WithStyle("primary")),
+			)))
 			upd, err := waiter.WaitForMessage(ctx, chatID)
 			if err != nil || upd.Message == nil {
 				return

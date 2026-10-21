@@ -119,7 +119,7 @@ func (j *job) otherBithdayCheck(ids []int64) {
 			continue
 		}
 		ch, ok := Groups.Get(id)
-		if !ok || !ch.Birthday.IsIn(1) {
+		if !ok || ch.AnonBdMode || !ch.Birthday.IsIn(1) {
 			continue
 		}
 		_, err := j.bot.SendMessage(j.ctx, tu.MessageWithEntities(tu.ID(j.i),

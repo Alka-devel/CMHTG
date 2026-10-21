@@ -68,6 +68,7 @@ type Classmate struct {
 	Sent           map[Notice]time.Time `json:"sent,omitempty"`
 	Configured     bool                 `json:"configured,omitempty"`
 	ManualSettings bool                 `json:"manual,omitempty"`
+	AnonBdMode     bool                 `json:"anonbdmode,omitempty"`
 }
 
 type ClassRegistry struct {
