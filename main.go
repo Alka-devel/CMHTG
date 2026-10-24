@@ -250,7 +250,7 @@ func scheduleCom(bh *th.BotHandler) {
 		btn1 := tu.InlineKeyboardButton("Да").WithIconCustomEmojiID("5388749682216280524").WithStyle("success")
 		btn2 := tu.InlineKeyboardButton("Нет").WithIconCustomEmojiID("5217944373362174845").WithStyle("Danger").WithCallbackData("nothing")
 		scheduleInDays := func(i int) error {
-			if day, ok := week.GetDay(time.Now().AddDate(0, 0, i)); ok {
+			if day, ok := week.GetDayShown(time.Now().AddDate(0, 0, i)); ok {
 				g, _ := Groups.GetGroup(update.Message.From.ID)
 				schImg(ctx, update.Message.GetChat().ChatID(), day, true, g)
 			} else {
@@ -261,7 +261,7 @@ func scheduleCom(bh *th.BotHandler) {
 		if cmd == "да" || cmd == "ближайшее" {
 			now := time.Now()
 			for nDay, i := 0, now; nDay < 14; i = i.Add(24 * time.Hour) {
-				day, ok := week.GetDay(i)
+				day, ok := week.GetDayShown(i)
 				if !ok || (nDay == 0 && dayFinished(day, now)) {
 					nDay++
 					continue
@@ -335,7 +335,7 @@ func getEmojiID(bh *th.BotHandler) {
 
 func interCom(bh *th.BotHandler) {
 	bh.Handle(func(ctx *th.Context, update telego.Update) error {
-		day, ok := week.GetDay(time.Now())
+		day, ok := week.GetDayShown(time.Now())
 		if !ok {
 			day = ScheduleDay{}
 		}

@@ -59,7 +59,7 @@ func (s LessonStatus) String() string {
 func Status(now time.Time) LessonStatus {
 	lessons := scheduleFor(now)
 	n := now.Sub(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()))
-	u, ok := week.GetDay(now)
+	u, ok := week.GetDayShown(now)
 	if !ok {
 		return LessonStatus{}
 	}
@@ -211,13 +211,12 @@ type LessonEntry struct {
 	Room    int
 	Addi    bool
 	Group   Group
-	IdIT    bool
-	IsSE    bool
 }
 
 type ScheduleDay struct {
 	Date    time.Time
 	Entries []LessonEntry
+	Base    bool
 }
 
 const dateLayout = "2.1.06"
@@ -318,9 +317,17 @@ func (w *WeekSchedule) GetDay(date time.Time) (ScheduleDay, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	day, ok := w.Days[date.Format("2006-01-02")]
-	return day, ok
+	if !ok {
+		y, m, d := date.Date()
+		return ScheduleDay{Date: time.Date(y, m, d, 0, 0, 0, 0, date.Location())}, false
+	}
+	return day, true
 }
-
+func (w *WeekSchedule) GetDayShown(date time.Time) (ScheduleDay, bool) {
+	day, _ := w.GetDay(date)
+	day = day.baseCheck()
+	return day, len(day.Entries) > 0
+}
 func (w *WeekSchedule) Save(path string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -359,23 +366,26 @@ func (d ScheduleDay) String() string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (w *WeekSchedule) GetDayByDate(dateStr string) (ScheduleDay, bool) {
-	t, err := time.Parse(dateLayout, dateStr)
-	if err != nil {
-		return ScheduleDay{}, false
-	}
-	return w.GetDay(t)
+var baseDays = map[time.Weekday]ScheduleDay{
+	time.Monday:    mondayBase,
+	time.Tuesday:   tuesdayBase,
+	time.Wednesday: wednesdayBase,
+	time.Thursday:  thursdayBase,
+	time.Friday:    fridayBase,
+	time.Saturday:  saturdayBase,
 }
-func (w *WeekSchedule) DeleteDay(date time.Time) error {
-	w.mu.Lock()
-	key := date.Format("2006-01-02")
-	if _, ok := w.Days[key]; !ok {
-		w.mu.Unlock()
-		return fmt.Errorf("дата %s не найдена", key)
+
+func (d ScheduleDay) baseCheck() ScheduleDay {
+	if len(d.Entries) > 0 {
+		return d
 	}
-	delete(w.Days, key)
-	w.mu.Unlock()
-	return w.Save(tabPath)
+	b, ok := baseDays[d.Date.Weekday()]
+	if !ok {
+		return d // воскресенье
+	}
+	b.Entries = slices.Clone(b.Entries)
+	b.Date = d.Date
+	return b
 }
 func dayFinished(day ScheduleDay, now time.Time) bool {
 	periods := scheduleFor(now)
@@ -387,6 +397,24 @@ func dayFinished(day ScheduleDay, now time.Time) bool {
 	}
 	last := periods[len(periods)-1]
 	return timeOfDay(now) >= last.End
+}
+func (w *WeekSchedule) GetDayByDate(dateStr string) (ScheduleDay, bool) {
+	t, err := time.Parse(dateLayout, dateStr)
+	if err != nil {
+		return ScheduleDay{}, false
+	}
+	return w.GetDayShown(t)
+}
+func (w *WeekSchedule) DeleteDay(date time.Time) error {
+	w.mu.Lock()
+	key := date.Format("2006-01-02")
+	if _, ok := w.Days[key]; !ok {
+		w.mu.Unlock()
+		return fmt.Errorf("дата %s не найдена", key)
+	}
+	delete(w.Days, key)
+	w.mu.Unlock()
+	return w.Save(tabPath)
 }
 func (w *WeekSchedule) EditEntry(date time.Time, idx int, fn func(*LessonEntry)) error {
 	w.mu.Lock()

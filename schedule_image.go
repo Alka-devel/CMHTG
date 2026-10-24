@@ -55,6 +55,8 @@ var (
 	colBorder    = mustHex("#E3E1D9") // разделитель
 	colTextMain  = mustHex("#1C1C1A") // основной текст
 	colTextMuted = mustHex("#5F5E5A") // вторичный текст (номер, кабинет, время)
+	colBaseBg    = mustHex("#FAEEDA") // фон плашки «основное»
+	colBaseText  = mustHex("#854F0B") // текст плашки
 
 	// подсветка текущего урока — teal-тональный контейнер
 	colHighlightBg   = mustHex("#dff5ec") // teal 50 c прозрачностью ~под фон
@@ -173,7 +175,22 @@ func RenderScheduleImage(day ScheduleDay, currentIndex int, timeLeft string, sca
 	dc.SetColor(colTextMain)
 	header := formatHeaderDate(day.Date)
 	dc.DrawString(header, pad, s(28))
-
+	if day.Base {
+		if err := setFont(dc, mediumFont, s(11)); err != nil {
+			return nil, err
+		}
+		label := "основное"
+		tw, _ := dc.MeasureString(label)
+		padX, h := s(8), s(20)
+		w := tw + padX*2
+		x := imgW - pad - w
+		y0 := s(12) // плашка 12..32, линия шапки на 40
+		dc.SetColor(colBaseBg)
+		dc.DrawRoundedRectangle(x, y0, w, h, h/2)
+		dc.Fill()
+		dc.SetColor(colBaseText)
+		dc.DrawString(label, x+padX, y0+h/2+s(4))
+	}
 	dc.SetColor(colBorder)
 	dc.SetLineWidth(s(1))
 	dc.DrawLine(pad, s(40), imgW-pad, s(40))

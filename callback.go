@@ -157,7 +157,7 @@ func callbackHan(bh *th.BotHandler) {
 		switch query.Data {
 		case "showSchedule":
 			deleteQueryMessage(ctx, query)
-			day, ok := week.GetDay(time.Now())
+			day, ok := week.GetDayShown(time.Now())
 			if !ok {
 				_, err := ctx.Bot().SendMessage(ctx, tu.Message(chID, "Расписание на сегодня не найдено."))
 				return err
